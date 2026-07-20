@@ -1,0 +1,75 @@
+"""
+indexing.py -- wraps FAISS. Upgraded to support REMOVAL, which soft-delete
+requires: when a document is marked stale, its vectors must actually leave
+the index, or a re-ingested/updated doc's old content keeps getting retrieved
+forever alongside the new version.
+
+FAISS's plain IndexFlatIP doesn't support removal or arbitrary IDs -- it only
+knows positional order. IndexIDMap2 wraps a base index and lets us assign our
+own integer IDs, which can later be removed with remove_ids(). Since our
+chunk_ids are UUID strings (not ints), we keep a chunk_id <-> int_id mapping
+here.
+"""
+
+import faiss
+import numpy as np
+from config import EMBEDDING_DIM, INDEX_TYPE
+
+# Extra safety alongside the KMP_DUPLICATE_LIB_OK env var set in server.py/
+# conftest.py -- forcing FAISS to a single thread removes the specific
+# multi-threaded code path where the OpenMP conflict with torch tends to
+# actually crash.
+faiss.omp_set_num_threads(1)
+
+
+class VectorIndex:
+    def __init__(self):
+        self._index = faiss.IndexIDMap2(build_base_index())
+        self._chunk_id_to_int: dict[str, int] = {}
+        self._int_to_chunk_id: dict[int, str] = {}
+        self._next_id = 0
+
+    def add(self, vectors, chunk_ids: list[str]):
+        ids = []
+        for cid in chunk_ids:
+            int_id = self._next_id
+            self._next_id += 1
+            self._chunk_id_to_int[cid] = int_id
+            self._int_to_chunk_id[int_id] = cid
+            ids.append(int_id)
+        self._index.add_with_ids(np.array(vectors, dtype="float32"), np.array(ids, dtype="int64"))
+
+    def remove(self, chunk_ids: list[str]):
+        """Used when a document is marked stale (soft-delete) -- actually
+        removes its vectors from the searchable index."""
+        int_ids = [self._chunk_id_to_int.pop(cid) for cid in chunk_ids if cid in self._chunk_id_to_int]
+        if int_ids:
+            self._index.remove_ids(np.array(int_ids, dtype="int64"))
+        for i in int_ids:
+            self._int_to_chunk_id.pop(i, None)
+
+    def search(self, query_vector, top_k: int):
+        if self._index.ntotal == 0:
+            return []
+        scores, ids = self._index.search(np.array(query_vector, dtype="float32"), min(top_k, self._index.ntotal))
+        results = []
+        for score, idx in zip(scores[0], ids[0]):
+            if idx == -1:
+                continue
+            chunk_id = self._int_to_chunk_id.get(int(idx))
+            if chunk_id:
+                results.append((chunk_id, float(score)))
+        return results
+
+    @property
+    def size(self):
+        return self._index.ntotal
+
+
+def build_base_index():
+    if INDEX_TYPE == "flat":
+        return faiss.IndexFlatIP(EMBEDDING_DIM)
+    raise ValueError(f"Unknown INDEX_TYPE: {INDEX_TYPE}")
+
+
+vector_index = VectorIndex()

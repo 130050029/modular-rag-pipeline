@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+python-multipart
+sentence-transformers
+faiss-cpu
+numpy
+requests
+datasets
+datasketch
+beautifulsoup4
+pymupdf
+pytest
+httpx

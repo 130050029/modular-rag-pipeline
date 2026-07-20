@@ -1,0 +1,42 @@
+[
+  {
+    "query": "How much of Earth's species live in the Amazon rainforest?",
+    "expected_source": "sample_prose.txt"
+  },
+  {
+    "query": "What causes deforestation in the Amazon?",
+    "expected_source": "sample_prose.txt"
+  },
+  {
+    "query": "What percentage of sunlight do solar panels convert to electricity?",
+    "expected_source": "sample_markdown.md"
+  },
+  {
+    "query": "How much does solar panel output degrade per year?",
+    "expected_source": "sample_markdown.md"
+  },
+  {
+    "query": "What water temperature is recommended for pour-over coffee?",
+    "expected_source": "sample_page.html"
+  },
+  {
+    "query": "How does pour-over coffee brewing work?",
+    "expected_source": "sample_page.html"
+  },
+  {
+    "query": "How long is the Great Barrier Reef?",
+    "expected_source": "near_duplicate_a.txt"
+  },
+  {
+    "query": "How do wind turbines generate electricity?",
+    "expected_source": "sample_document.pdf"
+  },
+  {
+    "query": "Why do offshore wind farms generate more power than onshore ones?",
+    "expected_source": "sample_document.pdf"
+  },
+  {
+    "query": "Which region had the highest Q4 revenue?",
+    "expected_source": "table_sample.txt"
+  }
+]

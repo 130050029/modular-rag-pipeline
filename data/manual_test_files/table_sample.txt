@@ -1,0 +1,10 @@
+Quarterly sales figures for the regional electronics division are summarized below, covering the four regions tracked separately for internal reporting purposes.
+
+| Region | Q1 Revenue | Q2 Revenue | Q3 Revenue | Q4 Revenue |
+|--------|-----------|-----------|-----------|-----------|
+| North  | 120000    | 135000    | 128000    | 142000    |
+| South  | 98000     | 101000    | 105000    | 110000    |
+| East   | 87000     | 92000     | 95000     | 99000     |
+| West   | 143000    | 150000    | 148000    | 160000    |
+
+Overall growth was strongest in the North and West regions during the second half of the year.

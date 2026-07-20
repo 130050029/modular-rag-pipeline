@@ -1,0 +1,19 @@
+# The actual database file -- generated at runtime, not part of the repo.
+# The data/ folder itself IS tracked (manual_test_files/, golden_set/) --
+# only the .db file inside it is excluded.
+data/*.db
+data/*.db-journal
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Environments
+.env
+venv/
+.venv/
+
+# OS cruft
+.DS_Store
