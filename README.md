@@ -1,178 +1,149 @@
 # Modular RAG Pipeline
 
-A deliberately small, modular RAG project, built up piece by piece to match
-each concept as we cover it.
+A modular, end-to-end Retrieval-Augmented Generation (RAG) pipeline built with FastAPI, FAISS, and sentence-transformers. It implements document ingestion with multi-format extraction, a three-layer deduplication strategy, document versioning with soft-delete, parent/child chunking, and table-aware embedding — each concern isolated into its own module so individual components can be understood, tested, and replaced independently.
 
-**Schema unchanged from last time -- if you already deleted rag.db and
-haven't re-run seed yet, you're fine. If you have an old rag.db, delete it.**
+## Features
 
-## Setup
+- **Multi-format ingestion**: plain text, Markdown, HTML, and PDF, dispatched through a pluggable extractor registry
+- **Three-layer deduplication**: exact (content hash), near-duplicate (MinHash + LSH), and semantic (embedding similarity)
+- **Document versioning**: re-ingesting an updated document soft-deletes the previous version and removes its vectors from the live index
+- **Parent/child chunking**: small chunks are embedded and searched; their parent chunks are what get passed to the LLM, keeping retrieval precise and generated context complete
+- **Two configurable chunking strategies**: fixed-size word windows, or semantic boundary detection based on sentence-embedding similarity
+- **Table-aware embedding**: tables are detected and embedded via a generated natural-language description rather than their raw structure
+- **FAISS-backed vector search** with support for removal (required for soft-delete)
+- **Full test suite** (pytest) covering every module in isolation plus end-to-end integration tests
+
+## Architecture
+
+```
+config.py              Every tunable value in the project; nothing else hardcodes settings
+server.py               FastAPI application (thin wiring layer only)
+requirements.txt
+rag/
+├── storage/            Document store (SQLite) and vector index (FAISS)
+│   ├── db.py
+│   └── indexing.py
+├── ingestion/           Document intake: extraction, chunking, table handling, orchestration
+│   ├── extractors.py    Per-file-type text extraction (txt / md / html / pdf)
+│   ├── chunking.py       Fixed-size or semantic chunking strategy
+│   ├── tables.py          Table detection and embedding-description generation
+│   └── pipeline.py        Orchestrates extraction, dedup, chunking, and indexing per document
+├── dedup/                Three deduplication strategies
+│   ├── exact.py           SHA-256 content hashing
+│   ├── near.py             MinHash + LSH (document-level)
+│   └── semantic.py          Embedding similarity (chunk-level)
+├── embeddings.py           Embedding model wrapper
+├── retrieval.py
+└── generation.py
+data/
+├── manual_test_files/     Sample files for manual endpoint testing
+└── golden_set/             Query set for retrieval evaluation (Recall@k / MRR)
+tests/                     pytest suite, mirroring the structure above
+```
+
+**Design principle**: `config.py` and `server.py` are the only files at the project root — they are the two things every module depends on (configuration) or that tie every module together (the API layer). Every other concern lives under `rag/`, grouped into a subpackage once it has multiple related files (`storage/`, `ingestion/`, `dedup/`); single-file concerns (`embeddings.py`, `retrieval.py`, `generation.py`) remain flat.
+
+Import convention: `config` is imported directly everywhere (`from config import TOP_K`) since it is a shared, project-wide resource. Everything else is imported by its full package path (`from rag.storage.db import ...`, `from rag.dedup.near import ...`), so the import statement itself identifies which layer of the pipeline a piece of logic belongs to.
+
+## Installation
 
 ```bash
+git clone <this-repo>
+cd modular-rag-pipeline
 pip install -r requirements.txt
-export ANTHROPIC_API_KEY=sk-ant-...   # optional
+export ANTHROPIC_API_KEY=sk-ant-...   # optional; without it, /chat returns raw retrieved context instead of a generated answer
+```
+
+## Running
+
+```bash
 python server.py
 ```
 
-Server runs at `http://127.0.0.1:8000`. Swagger UI: `http://127.0.0.1:8000/docs`.
+The API is available at `http://127.0.0.1:8000`, with interactive documentation (Swagger UI) at `http://127.0.0.1:8000/docs`.
 
-## Project structure
-
-```
-config.py              <- every tunable value, used by every phase below
-server.py               <- thin FastAPI wiring only
-requirements.txt
-rag/
-├── storage/            <- the "document store" + "vector index" phase
-│   ├── db.py
-│   └── indexing.py
-├── ingestion/           <- the "get documents in" phase
-│   ├── extractors.py    (per-file-type text extraction: txt/md/html/pdf)
-│   ├── chunking.py       (fixed or semantic chunking strategy)
-│   ├── tables.py          (table -> separate embedding description)
-│   └── pipeline.py        (orchestrates all of the above + dedup, per document)
-├── dedup/                <- its own phase, three strategies side by side
-│   ├── exact.py           (SHA-256 document/chunk hashing)
-│   ├── near.py             (MinHash + LSH, document-level)
-│   └── semantic.py          (embedding similarity, chunk-level)
-├── embeddings.py           <- used by multiple phases, no folder needed yet
-├── retrieval.py
-└── generation.py
-```
-
-**The organizing principle**: `config.py` and `server.py` are the only two
-files that sit at the root, because they're the only two things every phase
-needs (config) or that wire every phase together (server). Everything else
-lives under `rag/`, grouped into a folder once a phase has multiple related
-files -- `storage/`, `ingestion/`, and `dedup/` each do; `embeddings.py`,
-`retrieval.py`, `generation.py` stay flat since each is still one file.
-
-Import style: every file imports `config` directly (e.g. `from config import
-TOP_K`) since it's a project-root-level shared resource, not phase-specific.
-Everything else is imported by its full phase path, e.g.
-`from rag.storage.db import ...` or `from rag.dedup.near import ...` --
-so the import line itself tells you which phase a piece of logic belongs to,
-without needing to open the file.
-
-## Where each concept lives in code
-
-| Concept | File | Function |
-|---|---|---|
-| Fixed-size chunking w/ overlap | `rag/ingestion/chunking.py` | `_split_fixed()` |
-| Semantic chunking | `rag/ingestion/chunking.py` | `_split_semantic()` |
-| Small-to-retrieve, large-to-generate | `rag/ingestion/chunking.py`, `rag/storage/db.py` | `chunk_document()`, `get_chunks_with_parent_by_ids()` |
-| Multi-doc-type extraction | `rag/ingestion/extractors.py` | `EXTRACTORS` registry |
-| Table -> embedding description | `rag/ingestion/tables.py` | `get_embedding_text()` |
-| Exact document/chunk duplicate (filename-independent) | `rag/storage/db.py` | `get_document_by_content_hash()` |
-| Near-duplicate document (MinHash/LSH) | `rag/dedup/near.py` | `check_near_duplicate()` |
-| Semantic chunk-level duplicate | `rag/dedup/semantic.py` | `find_semantic_duplicate()` |
-| Full pipeline orchestration | `rag/ingestion/pipeline.py` | `ingest_document()` |
-| Versioning + soft-delete | `rag/storage/db.py`, `rag/ingestion/pipeline.py` | `mark_document_stale()` |
-| Vector removal (soft-delete's other half) | `rag/storage/indexing.py` | `VectorIndex.remove()` |
-| ANN search (flat/exact for now) | `rag/storage/indexing.py` | `build_base_index()` |
-
-## Try it
+## Usage
 
 ```bash
+# Ingest ~500 sample passages from the SQuAD dataset
 curl -X POST http://127.0.0.1:8000/seed
+
+# Ask a question
 curl -X POST http://127.0.0.1:8000/chat \
     -H "Content-Type: application/json" -d '{"query": "What is the capital of France?"}'
-curl -X POST http://127.0.0.1:8000/upload -F "file=@/path/to/some.pdf"
+
+# Upload a document (txt, md, html, or pdf)
+curl -X POST http://127.0.0.1:8000/upload -F "file=@/path/to/document.pdf"
 ```
+
+See `data/README.md` for a curated set of sample files that exercise every ingestion behavior (multi-format extraction, near-duplicate detection, table handling, versioning), and `data/golden_set/README.md` for the retrieval evaluation query set.
+
+## Configuration
+
+All configurable values live in `config.py`, including the database path, embedding model, chunking strategy and sizes, and deduplication thresholds. No other file hardcodes these values.
+
+**Note on storage backend**: `config.DB_PATH` controls which SQLite file is used, but switching to a different database engine entirely (e.g. Postgres) requires a code change in addition to configuration — `rag/storage/db.py` connects via `sqlite3` directly, and a different engine uses a different client library and connection model. That change is isolated to this single file; no other module touches storage directly.
+
+## Concept reference
+
+| Concept | Module | Key function |
+|---|---|---|
+| Fixed-size chunking with overlap | `rag/ingestion/chunking.py` | `_split_fixed()` |
+| Semantic chunking | `rag/ingestion/chunking.py` | `_split_semantic()` |
+| Parent/child chunk structure | `rag/ingestion/chunking.py`, `rag/storage/db.py` | `chunk_document()`, `get_chunks_with_parent_by_ids()` |
+| Multi-format extraction | `rag/ingestion/extractors.py` | `EXTRACTORS` registry |
+| Table detection and embedding description | `rag/ingestion/tables.py` | `split_table_blocks()`, `get_embedding_text()` |
+| Exact duplicate detection (filename-independent) | `rag/storage/db.py` | `get_document_by_content_hash()` |
+| Near-duplicate detection (MinHash/LSH) | `rag/dedup/near.py` | `check_near_duplicate()` |
+| Semantic duplicate detection | `rag/dedup/semantic.py` | `find_semantic_duplicate()` |
+| Pipeline orchestration | `rag/ingestion/pipeline.py` | `ingest_document()` |
+| Versioning and soft-delete | `rag/storage/db.py`, `rag/ingestion/pipeline.py` | `mark_document_stale()` |
+| Vector removal | `rag/storage/indexing.py` | `VectorIndex.remove()` |
+| Vector search (exact, brute-force) | `rag/storage/indexing.py` | `build_base_index()` |
 
 ## Viewing the database
 
-`rag.db` is a plain SQLite file -- VSCode "SQLite Viewer" extension, or
-[DB Browser for SQLite](https://sqlitebrowser.org/), or `sqlite3 rag.db "..."`.
+`rag.db` is a plain SQLite file. Options for inspecting it:
+- VSCode: the "SQLite Viewer" extension
+- [DB Browser for SQLite](https://sqlitebrowser.org/) (standalone GUI)
+- CLI: `sqlite3 rag.db "SELECT * FROM chunks LIMIT 5;"`
 
-## Storage location -- what changing config.py actually buys you
-
-`config.DB_PATH = "data/rag.db"` is the one line to edit if you want the
-SQLite file somewhere else -- outside the repo entirely, a different local
-path, whatever. Everything else imports `DB_PATH` from `config.py`, nothing
-hardcodes it.
-
-**Being precise about what this does and doesn't cover**: changing
-`DB_PATH` only changes *which SQLite file* is used. Swapping to an entirely
-different database *engine* (Postgres, for instance) would still require an
-actual code change -- `rag/storage/db.py` uses `sqlite3.connect(...)`
-directly, and a Postgres connection uses a different library (`psycopg2` or
-similar) with different connection/query mechanics. The good news is that
-change is **isolated to exactly one file** (`rag/storage/db.py`) thanks to
-the phase-folder structure -- nothing in `ingestion/`, `dedup/`, or
-`retrieval.py` would need to change, since they only ever call `db.py`'s
-functions, never touch SQLite directly. So: config-only for "which SQLite
-file," one-file-only (not zero-file) for "switch database engines entirely."
-
-## Fixes applied during testing (kept here so future-you knows why)
-
-- **Global exact-duplicate check was missing.** The original exact-dup
-  check was scoped to `source_uri` (filename), so identical content under a
-  *different* filename fell through to the more expensive near-dup (MinHash)
-  path and still inserted a `documents` row -- costly at scale if a large
-  fraction of ingested content is exact repeats. Fixed by adding
-  `get_document_by_content_hash()` (a plain indexed lookup, filename-
-  independent) as step 0 in `ingest_document()`, before versioning or
-  near-dup logic even run.
-- **Near-dup tests used unrealistically short text.** MinHash near-dup
-  detection uses 9-word shingles -- meaningful for paragraph-length content,
-  but a 14-word test sentence with one word changed only reaches ~0.77
-  similarity against the 0.8 threshold (verified empirically). Tests now use
-  paragraph-length text, matching what the algorithm is actually designed
-  for and what real documents look like.
-- **FAISS + PyTorch OpenMP segfault** -- see the dedicated section below.
-
-
-
-- Indexing: `IndexFlatIP` does exact brute-force search. HNSW/IVF next --
-  this will be a contained change inside `rag/storage/indexing.py` only.
-- Retrieval: dense search only -- no BM25/hybrid, no reranking, no query rewriting yet.
-- Table handling detects already-Markdown-formatted tables within a chunk;
-  no multi-page table reconstruction.
-- Versioning uses filename as the identity key across versions.
-- `rag/dedup/near.py`'s LSH index is in-memory only, rebuilt each restart.
-
-## Running tests
+## Testing
 
 ```bash
-pip install -r requirements.txt   # now includes pytest + httpx
 pytest tests/ -v
 ```
 
-Tests are structured to mirror the pipeline itself:
-- `test_dedup_exact.py`, `test_dedup_near.py` -- each dedup strategy tested in isolation
-- `test_chunking.py`, `test_tables.py`, `test_extractors.py` -- ingestion-phase logic, pure functions, no DB/network needed
-- `test_storage_db.py`, `test_storage_indexing.py` -- the two storage systems, including versioning/soft-delete and vector removal
-- `test_ingestion_pipeline.py` -- integration tests hitting `ingest_document()` end-to-end (exact/near dup, versioning)
-- `test_retrieval.py` -- retrieval mechanics (embed -> search -> fetch parent)
-- `test_api.py` -- real HTTP requests against the FastAPI app, including startup/shutdown lifespan
+The test suite mirrors the module structure:
 
-**Fake embeddings, not a real model**: most tests use a `fake_embeddings`
-fixture (see `conftest.py`) -- deterministic, instant vectors instead of
-loading `sentence-transformers`, so the suite runs in seconds. They're NOT
-semantically meaningful (don't test "does retrieval find the most relevant
-result among several options" with them) -- only real-model tests could
-verify that; this suite verifies the *plumbing*, not embedding quality.
+| Test file | Covers |
+|---|---|
+| `test_dedup_exact.py`, `test_dedup_near.py` | Each deduplication strategy in isolation |
+| `test_chunking.py`, `test_tables.py`, `test_extractors.py` | Ingestion-phase logic (pure functions, no I/O) |
+| `test_storage_db.py`, `test_storage_indexing.py` | Document store and vector index, including versioning and vector removal |
+| `test_ingestion_pipeline.py` | End-to-end pipeline behavior (dedup, versioning) |
+| `test_retrieval.py` | Retrieval mechanics |
+| `test_api.py` | HTTP-level tests against the running FastAPI application |
 
-**Every test gets a fresh DB, vector index, and MinHash/LSH index**
-automatically (autouse fixtures in `conftest.py`) -- no manual cleanup, and
-no state leaks between tests.
+Most tests use a `fake_embeddings` fixture (see `tests/conftest.py`) that returns deterministic vectors instead of loading a real model, keeping the suite fast. These fixtures are not semantically meaningful and are not suited to evaluating retrieval quality — only real-model tests can do that. Every test receives a fresh database, vector index, and MinHash/LSH index via autouse fixtures, ensuring tests do not affect one another.
 
-## Known issue: FAISS + PyTorch segfault on macOS
+## Known limitations
 
-If you see `Fatal Python error: Segmentation fault` inside
-`faiss/swigfaiss.py`'s `search()`, this is a known compatibility problem,
-not a bug in the pipeline logic: both `faiss-cpu` and `torch` (pulled in by
-`sentence-transformers`) bundle their own OpenMP runtime, and loading both
-in one process can crash when FAISS spins up its parallel search threads.
+- Vector search uses exact brute-force search (`IndexFlatIP`); an approximate index (HNSW/IVF) is a planned addition, isolated to `rag/storage/indexing.py`.
+- Retrieval is dense-only; no hybrid (BM25) retrieval, reranking, or query rewriting yet.
+- Table detection handles tables already present in Markdown form within a document; it does not reconstruct tables split across multiple PDF pages.
+- Document versioning uses filename as the identity key; a production system would use a stable external identifier.
+- The MinHash/LSH index in `rag/dedup/near.py` is in-memory only and rebuilt on every restart.
 
-**Already fixed** in `server.py` and `tests/conftest.py` (env vars set at
-the very top, before any other import) and in `rag/storage/indexing.py`
-(FAISS capped to a single thread). If you still hit it:
-- Make sure you're running the latest version of these three files.
-- As a last resort, set the env vars manually before running anything:
-  `export KMP_DUPLICATE_LIB_OK=TRUE OMP_NUM_THREADS=1`
-- The more "correct" long-term fix (not needed here, just FYI) is installing
-  `faiss-cpu` from `conda-forge` instead of the pip wheel, since conda
-  coordinates shared native libraries across packages instead of each
-  bundling its own copy.
+## Troubleshooting
+
+**`Fatal Python error: Segmentation fault` inside `faiss/swigfaiss.py`**
+
+This is a known compatibility issue between `faiss-cpu` and `torch` (pulled in by `sentence-transformers`) on some platforms: both bundle their own OpenMP runtime, and loading both in one process can crash when FAISS runs its parallel search. The fix is already applied in `server.py` and `tests/conftest.py` (environment variables set before any other import) and in `rag/storage/indexing.py` (FAISS restricted to a single thread). If it still occurs:
+
+```bash
+export KMP_DUPLICATE_LIB_OK=TRUE
+export OMP_NUM_THREADS=1
+```
+
+The more robust long-term fix is installing `faiss-cpu` from `conda-forge` rather than the PyPI wheel, since conda coordinates shared native libraries across packages instead of each bundling its own copy.

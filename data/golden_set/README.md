@@ -1,18 +1,17 @@
 # Golden Set
 
-`queries.json` is the evaluation set we discussed: each entry is a
+`queries.json` is a retrieval evaluation set: each entry is a
 `(query, expected_source)` pair against the files in
-`../manual_test_files/`. Upload all of those files first (via Swagger or
-curl), then this set can be used to compute Recall@k and MRR the way we
-described -- run each query through `/chat` (or directly through
-`retrieve()` in a small script), check whether `expected_source` appears
-among the returned `sources`, and at what rank.
+`../manual_test_files/`. After uploading those files, this set can be used
+to compute Recall@k and MRR — run each query through `/chat` (or directly
+through `retrieve()`), and check whether `expected_source` appears among
+the returned sources, and at what rank.
 
-This is intentionally small (10 queries) -- enough to sanity-check that
-retrieval is working at all and to compare chunking-strategy changes
-against each other, not a statistically rigorous benchmark. A real golden
-set, per what we discussed, would have a few hundred pairs oversampling
-your hardest document types.
+This set is intentionally small (10 queries) — sufficient to sanity-check
+that retrieval works and to compare chunking-strategy changes against one
+another, but not a statistically rigorous benchmark. A production-scale
+golden set would contain a few hundred pairs, oversampling the hardest
+document types in the corpus.
 
 ## Format
 
@@ -23,16 +22,15 @@ your hardest document types.
 }
 ```
 
-## Quick manual check via Swagger
+## Manual evaluation via Swagger
 
 1. Upload every file in `manual_test_files/` via `/upload`.
 2. For each entry in `queries.json`, POST it to `/chat` and check whether
    `sources` contains the `expected_source` filename.
 
-## Turning this into an actual Recall@k / MRR script (next step)
+## Automated evaluation (planned)
 
-Once we cover retrieval evaluation properly, this file is exactly what a
-small `eval.py` script would loop over: for each pair, call
-`rag.retrieval.retrieve(query, top_k=N)`, check if `expected_source`
-appears in the returned sources (Recall@k), and note its rank if so (for
-MRR). Not implemented yet -- flagging where it plugs in once we get there.
+A small `eval.py` script would loop over this file: for each pair, call
+`rag.retrieval.retrieve(query, top_k=N)`, check whether `expected_source`
+appears in the returned sources (Recall@k), and record its rank if so (for
+MRR). Not yet implemented.

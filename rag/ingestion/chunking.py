@@ -81,11 +81,24 @@ def _split_semantic(words: list[str]) -> list[str]:
 
 
 def chunk_document(text: str) -> list[dict]:
-    """Returns: [{"parent_text": str, "small_texts": [str, ...]}, ...]"""
-    words = text.split()
+    """Returns: [{"parent_text": str, "small_texts": [str, ...]}, ...]
+
+    Table blocks are pulled out FIRST, on the raw text, each becoming its own
+    dedicated parent+small chunk pair (one small chunk, identical to the
+    parent, since a table shouldn't be sub-split by word count the way prose
+    is). The remaining prose is then chunked normally. See tables.py's
+    split_table_blocks() docstring for why this has to happen before any
+    word-based splitting runs.
+    """
+    from rag.ingestion.tables import split_table_blocks
+
+    table_blocks, prose_text = split_table_blocks(text)
+
+    groups = [{"parent_text": block, "small_texts": [block]} for block in table_blocks]
+
+    words = prose_text.split()
     parent_texts = _split_fixed(words, PARENT_CHUNK_SIZE_WORDS, overlap=0)
 
-    groups = []
     for parent_text in parent_texts:
         parent_words = parent_text.split()
 

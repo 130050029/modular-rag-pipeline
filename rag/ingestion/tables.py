@@ -72,6 +72,42 @@ def _llm_description(text: str) -> str:
     return response.json()["content"][0]["text"].strip()
 
 
+def split_table_blocks(text: str) -> tuple[list[str], str]:
+    """Splits `text` into (table_blocks, remaining_text).
+
+    Must run on the RAW text, before any word-based chunking has a chance to
+    collapse newlines -- table detection depends on line structure
+    (is_table_like checks patterns per-line via splitlines()), and word-based
+    chunking's `" ".join(words)` destroys that structure entirely. This is
+    why table detection has to happen as its own pre-processing pass, not as
+    a check run on already-chunked text.
+    """
+    lines = text.splitlines()
+    blocks = []
+    remaining_lines = []
+    buffer: list[str] = []
+
+    def flush_buffer():
+        if not buffer:
+            return
+        joined = "\n".join(buffer)
+        if is_table_like(joined):
+            blocks.append(joined)
+        else:
+            remaining_lines.extend(buffer)
+        buffer.clear()
+
+    for line in lines:
+        if _TABLE_ROW_RE.match(line):
+            buffer.append(line)
+        else:
+            flush_buffer()
+            remaining_lines.append(line)
+    flush_buffer()
+
+    return blocks, "\n".join(remaining_lines)
+
+
 def get_embedding_text(chunk_text: str) -> str:
     """Returns what should actually be embedded for this chunk: a generated
     description if it looks like a table, otherwise the chunk's own text
