@@ -82,30 +82,36 @@ def _split_semantic(words: list[str]) -> list[str]:
 
 def chunk_document(text: str) -> list[dict]:
     """Returns: [{"parent_text": str, "small_texts": [str, ...]}, ...]
+    in ORIGINAL DOCUMENT ORDER.
 
-    Table blocks are pulled out FIRST, on the raw text, each becoming its own
-    dedicated parent+small chunk pair (one small chunk, identical to the
-    parent, since a table shouldn't be sub-split by word count the way prose
-    is). The remaining prose is then chunked normally. See tables.py's
-    split_table_blocks() docstring for why this has to happen before any
-    word-based splitting runs.
+    Table segments each become their own dedicated parent+small chunk pair
+    (one small chunk, identical to the parent -- a table shouldn't be
+    sub-split by word count the way prose is). Each PROSE segment between/
+    around tables is chunked independently in the fixed or semantic
+    strategy -- prose appearing before a table is never merged with prose
+    appearing after it, since they were never adjacent in the source text.
     """
-    from rag.ingestion.tables import split_table_blocks
+    from rag.ingestion.tables import split_into_segments
 
-    table_blocks, prose_text = split_table_blocks(text)
+    segments = split_into_segments(text)
+    groups = []
 
-    groups = [{"parent_text": block, "small_texts": [block]} for block in table_blocks]
+    for segment_type, content in segments:
+        if segment_type == "table":
+            groups.append({"parent_text": content, "small_texts": [content]})
+            continue
 
-    words = prose_text.split()
-    parent_texts = _split_fixed(words, PARENT_CHUNK_SIZE_WORDS, overlap=0)
+        words = content.split()
+        if not words:
+            continue
 
-    for parent_text in parent_texts:
-        parent_words = parent_text.split()
+        parent_texts = _split_fixed(words, PARENT_CHUNK_SIZE_WORDS, overlap=0)
+        for parent_text in parent_texts:
+            parent_words = parent_text.split()
+            if CHUNKING_STRATEGY == "semantic":
+                small_texts = _split_semantic(parent_words)
+            else:
+                small_texts = _split_fixed(parent_words, SMALL_CHUNK_SIZE_WORDS, SMALL_CHUNK_OVERLAP_WORDS)
+            groups.append({"parent_text": parent_text, "small_texts": small_texts})
 
-        if CHUNKING_STRATEGY == "semantic":
-            small_texts = _split_semantic(parent_words)
-        else:
-            small_texts = _split_fixed(parent_words, SMALL_CHUNK_SIZE_WORDS, SMALL_CHUNK_OVERLAP_WORDS)
-
-        groups.append({"parent_text": parent_text, "small_texts": small_texts})
     return groups

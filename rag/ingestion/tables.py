@@ -72,40 +72,48 @@ def _llm_description(text: str) -> str:
     return response.json()["content"][0]["text"].strip()
 
 
-def split_table_blocks(text: str) -> tuple[list[str], str]:
-    """Splits `text` into (table_blocks, remaining_text).
+def split_into_segments(text: str) -> list[tuple[str, str]]:
+    """Splits `text` into an ORDER-PRESERVING list of (segment_type, content)
+    tuples, segment_type in {"table", "prose"} -- e.g. a document reading
+    "intro, table, conclusion" produces [("prose", intro), ("table", ...),
+    ("prose", conclusion)], not tables-first-then-everything-else.
 
-    Must run on the RAW text, before any word-based chunking has a chance to
-    collapse newlines -- table detection depends on line structure
-    (is_table_like checks patterns per-line via splitlines()), and word-based
-    chunking's `" ".join(words)` destroys that structure entirely. This is
-    why table detection has to happen as its own pre-processing pass, not as
-    a check run on already-chunked text.
+    This replaces an earlier version (split_table_blocks) that extracted all
+    table blocks first and lumped ALL remaining lines into one combined
+    prose blob -- which silently merged unrelated prose appearing before and
+    after a table into a single chunk, and always numbered tables as
+    position 0 regardless of where they actually appeared in the document.
+
+    Must still run on the RAW text, before any word-based chunking has a
+    chance to collapse newlines -- table detection depends on line
+    structure, which word-based chunking's `" ".join(words)` destroys.
     """
     lines = text.splitlines()
-    blocks = []
-    remaining_lines = []
+    segments: list[tuple[str, str]] = []
     buffer: list[str] = []
+    buffer_type: str | None = None
 
-    def flush_buffer():
-        if not buffer:
-            return
-        joined = "\n".join(buffer)
-        if is_table_like(joined):
-            blocks.append(joined)
-        else:
-            remaining_lines.extend(buffer)
-        buffer.clear()
+    def flush():
+        nonlocal buffer, buffer_type
+        if buffer:
+            content = "\n".join(buffer)
+            # Re-verify with the majority-of-lines heuristic, not just
+            # "every line in this run matched the single-row regex" --
+            # protects against a lone stray "|" in prose being misread.
+            final_type = "table" if (buffer_type == "table" and is_table_like(content)) else "prose"
+            segments.append((final_type, content))
+        buffer = []
+        buffer_type = None
 
     for line in lines:
-        if _TABLE_ROW_RE.match(line):
-            buffer.append(line)
-        else:
-            flush_buffer()
-            remaining_lines.append(line)
-    flush_buffer()
+        line_type = "table" if _TABLE_ROW_RE.match(line) else "prose"
+        if buffer_type is not None and line_type != buffer_type:
+            flush()
+        buffer_type = line_type
+        buffer.append(line)
+    flush()
 
-    return blocks, "\n".join(remaining_lines)
+    return segments
 
 
 def get_embedding_text(chunk_text: str) -> str:
