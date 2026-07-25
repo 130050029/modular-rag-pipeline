@@ -20,8 +20,9 @@ config.py              Every tunable value in the project; nothing else hardcode
 server.py               FastAPI application (thin wiring layer only)
 requirements.txt
 rag/
-├── storage/            Document store (SQLite) and vector index (FAISS)
+├── storage/            Document store (SQLite or Postgres) and vector index (FAISS)
 │   ├── db.py
+│   ├── connection.py     Backend-agnostic connection layer (SQLite/Postgres)
 │   └── indexing.py
 ├── ingestion/           Document intake: extraction, chunking, table handling, orchestration
 │   ├── extractors.py    Per-file-type text extraction (txt / md / html / pdf)
@@ -80,9 +81,77 @@ See `data/README.md` for a curated set of sample files that exercise every inges
 
 ## Configuration
 
-All configurable values live in `config.py`, including the database path, embedding model, chunking strategy and sizes, and deduplication thresholds. No other file hardcodes these values.
+All configurable values live in `config.py`, including the storage backend, embedding model, chunking strategy and sizes, and deduplication thresholds. No other file hardcodes these values.
 
-**Note on storage backend**: `config.DB_PATH` controls which SQLite file is used, but switching to a different database engine entirely (e.g. Postgres) requires a code change in addition to configuration — `rag/storage/db.py` connects via `sqlite3` directly, and a different engine uses a different client library and connection model. That change is isolated to this single file; no other module touches storage directly.
+### Storage backend: SQLite or Postgres
+
+Set via `config.DB_BACKEND` (or the `DB_BACKEND` environment variable): `"sqlite"` (default) or `"postgres"`.
+
+```bash
+# SQLite (default) -- no setup required
+python server.py
+
+# Postgres
+export DB_BACKEND=postgres
+export POSTGRES_HOST=localhost
+export POSTGRES_PORT=5432
+export POSTGRES_DB=rag_dev
+export POSTGRES_USER=rag_dev
+export POSTGRES_PASSWORD=your_password
+python server.py
+```
+
+Both backends are supported behind one interface (`rag/storage/connection.py`); `rag/storage/db.py`'s queries are identical regardless of which is active. This works because the schema uses only `TEXT`/`INTEGER` columns (portable across both engines) and the two real differences — placeholder syntax (`?` vs `%s`) and connection setup — are handled entirely inside `connection.py`.
+
+**Limits of this approach, stated plainly**: this is a lightweight adapter, not an ORM. It does not handle schema migrations, connection pooling, or SQL dialect differences beyond placeholders and multi-statement scripts. If the schema grows more complex, reaching for a real query layer (SQLAlchemy or similar) would be the more robust path. Also note that the SQLite/Postgres branch in `connection.py` is decided once, at import time — switching `DB_BACKEND` at runtime after the process has started has no effect.
+
+**On credentials**: the `POSTGRES_PASSWORD` default in `config.py` is a placeholder for local development only. It is read from an environment variable with a fallback value — adequate to avoid a hardcoded secret in source, but not a substitute for real secret management (a secrets manager, or an environment with no fallback default at all) in any shared or production environment.
+
+### Vector index persistence
+
+Without persistence, every server restart re-runs the embedding model over every indexable chunk in the entire corpus before it can serve a single request — fine at toy scale, a severe problem at millions of chunks (a restart could take hours). `rag/storage/indexing.py`'s `VectorIndex.save()`/`load_from_disk()` persist the FAISS index and its chunk_id mapping to `config.FAISS_INDEX_PATH` (`data/faiss_index.faiss` + `data/faiss_index.meta.json` by default). `server.py`'s `lifespan` tries loading this on startup, only falling back to a full rebuild-from-database if nothing was persisted yet (first run, or the files were deleted) — and the pipeline saves again after every ingestion that actually changes the index, so a later restart never re-embeds anything from before.
+
+The near-duplicate index gets the equivalent treatment: the `"memory"` backend is rebuilt at startup too (reconstructed from stored parent chunks, since raw document text isn't persisted separately — see `get_all_document_texts_for_near_dedup()`'s docstring for the caveat on exactness), and the `"redis"` backend persists on its own as long as Redis's data directory is bind-mounted (see `docker-compose.yml`).
+
+### Near-duplicate detection backend: in-memory or Redis
+
+Set via `config.NEAR_DUP_BACKEND` (or the `NEAR_DUP_BACKEND` environment variable): `"memory"` (default) or `"redis"`.
+
+```bash
+# In-memory (default) -- no setup required
+python server.py
+
+# Redis
+export NEAR_DUP_BACKEND=redis
+export REDIS_HOST=localhost
+export REDIS_PORT=6379
+python server.py
+```
+
+The Redis backend uses datasketch's own built-in Redis storage layer (`MinHashLSH(storage_config={"type": "redis", ...})`) rather than a hand-rolled implementation -- it's the same `MinHashLSH` class as the "memory" backend, just pointed at Redis, so it reuses datasketch's own optimal band/row parameter search internally rather than an approximation. One detail that matters and is easy to miss: `NEAR_DUP_REDIS_BASENAME` must stay fixed -- datasketch generates a random one if omitted, which would silently give every process its own disconnected index (verified this failure mode directly before settling on a fixed value).
+
+### Running a local Postgres instance for testing
+
+```bash
+docker compose up -d
+```
+
+This starts both Postgres and Redis, using `docker-compose.yml` (included in the repo). Postgres's data is bind-mounted to `data/postgres_data/` on disk -- unlike a plain `docker run` without a volume, this means the data survives container removal (`docker compose down`, even `docker compose down -v`, since a bind mount isn't a Docker-managed volume). The only way to actually delete it is `rm -rf data/postgres_data`. Redis's data is not persisted across container removal by design (see the comment in `docker-compose.yml`) -- acceptable since the near-duplicate index is meant to be rebuildable as documents are re-ingested.
+
+The container has no tables until the app runs and creates them:
+
+```bash
+export DB_BACKEND=postgres
+python server.py
+```
+
+Watch the startup output — `init_db()` runs `CREATE TABLE IF NOT EXISTS` against Postgres on first launch. Only after this will a database client show any tables.
+
+### Visualizing database contents
+
+- **SQLite**: VSCode "SQLite Viewer" extension, [DB Browser for SQLite](https://sqlitebrowser.org/), or `sqlite3 data/rag.db "..."`.
+- **Postgres**: VSCode "SQLTools" (`mtxr.sqltools`) with the PostgreSQL driver (`mtxr.sqltools-driver-pg`). Connect with: host `localhost`, port `5432`, database `rag_dev`, username `rag_dev`, password `dev_password_change_me` (matching `docker-compose.yml`'s defaults).
+- **Either**: [DBeaver](https://dbeaver.io/) (free) supports both SQLite and Postgres in one tool.
 
 ## Concept reference
 
@@ -93,20 +162,15 @@ All configurable values live in `config.py`, including the database path, embedd
 | Parent/child chunk structure | `rag/ingestion/chunking.py`, `rag/storage/db.py` | `chunk_document()`, `get_chunks_with_parent_by_ids()` |
 | Multi-format extraction | `rag/ingestion/extractors.py` | `EXTRACTORS` registry |
 | Table detection and embedding description | `rag/ingestion/tables.py` | `split_table_blocks()`, `get_embedding_text()` |
+| Configurable storage backend (SQLite/Postgres) | `rag/storage/connection.py` | `Connection`, `get_connection()` |
 | Exact duplicate detection (filename-independent) | `rag/storage/db.py` | `get_document_by_content_hash()` |
-| Near-duplicate detection (MinHash/LSH) | `rag/dedup/near.py` | `check_near_duplicate()` |
+| Near-duplicate detection (MinHash/LSH, configurable backend) | `rag/dedup/near.py` | `check_near_duplicate()`, `_MemoryBackend`, `_RedisBackend` (datasketch's native Redis storage) |
 | Semantic duplicate detection | `rag/dedup/semantic.py` | `find_semantic_duplicate()` |
 | Pipeline orchestration | `rag/ingestion/pipeline.py` | `ingest_document()` |
 | Versioning and soft-delete | `rag/storage/db.py`, `rag/ingestion/pipeline.py` | `mark_document_stale()` |
 | Vector removal | `rag/storage/indexing.py` | `VectorIndex.remove()` |
 | Vector search (exact, brute-force) | `rag/storage/indexing.py` | `build_base_index()` |
-
-## Viewing the database
-
-`rag.db` is a plain SQLite file. Options for inspecting it:
-- VSCode: the "SQLite Viewer" extension
-- [DB Browser for SQLite](https://sqlitebrowser.org/) (standalone GUI)
-- CLI: `sqlite3 rag.db "SELECT * FROM chunks LIMIT 5;"`
+| Vector index persistence (avoids re-embedding on restart) | `rag/storage/indexing.py`, `server.py` | `VectorIndex.save()`, `load_from_disk()`, `lifespan()` |
 
 ## Testing
 
@@ -121,19 +185,50 @@ The test suite mirrors the module structure:
 | `test_dedup_exact.py`, `test_dedup_near.py` | Each deduplication strategy in isolation |
 | `test_chunking.py`, `test_tables.py`, `test_extractors.py` | Ingestion-phase logic (pure functions, no I/O) |
 | `test_storage_db.py`, `test_storage_indexing.py` | Document store and vector index, including versioning and vector removal |
+| `test_postgres_integration.py` | The one file that runs against a REAL Postgres instance rather than the forced-SQLite default (see below) |
+| `test_redis_integration.py` | The one file that runs against a REAL Redis instance rather than the forced-in-memory default (see below) |
 | `test_ingestion_pipeline.py` | End-to-end pipeline behavior (dedup, versioning) |
 | `test_retrieval.py` | Retrieval mechanics |
 | `test_api.py` | HTTP-level tests against the running FastAPI application |
 
-Most tests use a `fake_embeddings` fixture (see `tests/conftest.py`) that returns deterministic vectors instead of loading a real model, keeping the suite fast. These fixtures are not semantically meaningful and are not suited to evaluating retrieval quality — only real-model tests can do that. Every test receives a fresh database, vector index, and MinHash/LSH index via autouse fixtures, ensuring tests do not affect one another.
+Most tests use a `fake_embeddings` fixture (see `tests/conftest.py`) that returns deterministic vectors instead of loading a real model, keeping the suite fast. These fixtures are not semantically meaningful and are not suited to evaluating retrieval quality — only real-model tests can do that. Every test **except** `test_postgres_integration.py` receives a fresh database, vector index, and MinHash/LSH index via autouse fixtures, with the storage backend forced to SQLite regardless of the real environment's `DB_BACKEND` setting — this keeps the default test run fast and independent of any running database service.
+
+**Testing the Postgres backend specifically**: `test_postgres_integration.py` is the one file that deliberately overrides that SQLite-forcing and connects to a real Postgres instance. It skips itself (not a failure) if Postgres isn't reachable, so it's safe to always include in a normal test run:
+
+```bash
+docker compose up -d               # start Postgres and Redis first
+pytest tests/test_postgres_integration.py -v
+```
+
+**Testing the Redis backend specifically**: `test_redis_integration.py` follows the same pattern — deliberately overrides the forced in-memory MinHash backend, connects to a real Redis instance (using logical DB 15, flushed before/after each test, isolated from any real data in the default DB), and skips cleanly if Redis isn't reachable.
+
+```bash
+docker compose up -d
+pytest tests/test_redis_integration.py -v
+```
+
+## Planned enhancements
+
+Deliberately deferred work, kept here so intent isn't lost between sessions:
+
+- **CI via GitHub Actions.** Run `pytest tests/` automatically on every push, including a Postgres service container so `test_postgres_integration.py` runs for real in CI, not just locally when a developer happens to have `docker compose up -d` running. A standard GitHub Actions workflow with a `services: postgres:` block covers this; not expected to be difficult to set up.
+
+- **PySpark-based batch near-duplicate detection.** `rag/dedup/near.py` now supports "memory" and "redis" backends (both suited to real-time, per-upload checking). A Spark-based batch job (`pyspark.ml.feature.MinHashLSH`) is a different tier of solution, suited to periodic full-corpus re-scans across millions of documents rather than live request-time checks -- likely to coexist with, not replace, the real-time backends above.
+- **Layout-aware document extraction (Docling / Unstructured.io).** To properly extract tables from PDFs and handle images (OCR), rather than the current raw-text-only PDF extraction and complete absence of image support. Would slot into `rag/ingestion/extractors.py` as an additional extractor path.
+- **File storage.** Raw uploaded files are currently processed and discarded, never persisted. Production systems store the original file in object storage (S3 or equivalent) and keep a reference (not the bytes) in the database — enabling source-document display, re-processing without re-upload, compliance retention, and debugging bad extractions. Planned as a `FileStorage` interface mirroring the `DB_BACKEND` pattern: a `LocalDiskBackend` (writing to `data/uploads/`, simulating object storage for local dev) and an `S3Backend` selected via config.
+- **A real UI.** Currently Swagger/curl only; a minimal frontend (upload, chat, source display with links back to original documents) would depend on file storage being in place first.
+- **Chat session management and context compaction.** No conversation/session concept currently exists — each `/chat` call is stateless. A real system needs session storage, multi-turn context, and a strategy for summarizing or truncating conversation history once it grows too long for the context window.
+- **Multi-vendor generation support.** `rag/generation.py` calls Anthropic's API directly; a production system would abstract this behind a common interface so the underlying model/vendor is swappable via config, similar in spirit to the storage backend abstraction.
+- **Secrets management.** `config.py`'s Postgres password currently falls back to a hardcoded dev default if no environment variable is set — adequate for local development, not for any shared or production environment. Planned: remove the fallback default entirely, and/or integrate a real secrets manager.
 
 ## Known limitations
 
-- Vector search uses exact brute-force search (`IndexFlatIP`); an approximate index (HNSW/IVF) is a planned addition, isolated to `rag/storage/indexing.py`.
+- Vector search uses exact brute-force search (`IndexFlatIP`); an approximate index (HNSW/IVF) is a planned addition, isolated to `rag/storage/indexing.py`. The index itself is now persisted to disk (`config.FAISS_INDEX_PATH`) and loaded on startup rather than re-embedded from scratch every restart — see Configuration below.
 - Retrieval is dense-only; no hybrid (BM25) retrieval, reranking, or query rewriting yet.
-- Table detection handles tables already present in Markdown form within a document; it does not reconstruct tables split across multiple PDF pages.
+- Table detection works on already-Markdown-formatted tables in text/HTML/Markdown sources; it does not extract or reconstruct tables from PDFs or images (see Planned enhancements).
 - Document versioning uses filename as the identity key; a production system would use a stable external identifier.
-- The MinHash/LSH index in `rag/dedup/near.py` is in-memory only and rebuilt on every restart.
+- The near-duplicate index is rebuilt at startup for the `"memory"` backend (reconstructed from stored parent chunks, since raw document text isn't stored separately) and persists on its own for the `"redis"` backend (as long as Redis's data directory is bind-mounted — see `docker-compose.yml`). A Spark-based batch alternative for full-corpus scans is still planned (see Planned enhancements).
+- The SQLite/Postgres storage adapter (`rag/storage/connection.py`) does not handle schema migrations, connection pooling, or SQL dialect differences beyond placeholders — see the Configuration section above.
 
 ## Troubleshooting
 

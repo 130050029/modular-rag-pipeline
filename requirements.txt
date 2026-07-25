@@ -10,4 +10,13 @@ datasketch
 beautifulsoup4
 pymupdf
 pytest
-httpx
+httpx2
+
+# Only needed if config.DB_BACKEND is set to "postgres" -- not required for
+# the default SQLite backend. Uses psycopg3 (package name "psycopg"), not
+# the older psycopg2.
+psycopg[binary]
+
+# Only needed if config.NEAR_DUP_BACKEND is set to "redis" -- not required
+# for the default in-memory backend.
+redis

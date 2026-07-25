@@ -37,9 +37,29 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def temp_db(tmp_path, monkeypatch):
-    """Point the database at a fresh temp SQLite file for every test."""
+    """Point the database at a fresh temp SQLite file for every test.
+
+    DB_PATH is still patched on rag.storage.connection (it stays a plain
+    module-level constant there). DB_BACKEND, however, is patched on
+    config.DB_BACKEND directly, NOT rag.storage.connection.DB_BACKEND --
+    connection.py no longer holds DB_BACKEND as a module-level attribute at
+    all (Connection.__init__ re-imports it fresh from config on every call,
+    specifically so a monkeypatched value here is always picked up
+    regardless of what's set in the real shell environment). Patching the
+    old location would now raise AttributeError instead of silently doing
+    nothing -- this is the corrected version of that fixture."""
     db_file = tmp_path / "test_rag.db"
-    monkeypatch.setattr("rag.storage.db.DB_PATH", str(db_file))
+    monkeypatch.setattr("rag.storage.connection.DB_PATH", str(db_file))
+    monkeypatch.setattr("config.DB_BACKEND", "sqlite")
+
+    # Also isolate FAISS index persistence to this test's tmp_path --
+    # without this, test_api.py's `with TestClient(server.app) as c:` would
+    # trigger lifespan's real load_from_disk()/save() calls against
+    # config.FAISS_INDEX_PATH's REAL value ("data/faiss_index"), silently
+    # reading and writing actual persisted index files on disk during tests.
+    faiss_prefix = tmp_path / "test_faiss_index"
+    monkeypatch.setattr("config.FAISS_INDEX_PATH", str(faiss_prefix))
+
     from rag.storage.db import init_db
     init_db()
     yield str(db_file)
@@ -60,12 +80,17 @@ def fresh_vector_index(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def fresh_near_dedup_index(monkeypatch):
-    """Same idea for near_dedup's in-memory MinHash/LSH index."""
-    from datasketch import MinHashLSH
-    from config import NEAR_DUP_JACCARD_THRESHOLD, MINHASH_NUM_PERM
-    fresh_lsh = MinHashLSH(threshold=NEAR_DUP_JACCARD_THRESHOLD, num_perm=MINHASH_NUM_PERM)
-    monkeypatch.setattr("rag.dedup.near._lsh", fresh_lsh)
-    yield fresh_lsh
+    """Fresh in-memory MinHash/LSH backend for every test, and forces
+    config.NEAR_DUP_BACKEND to "memory" regardless of the real
+    environment's setting -- same reasoning as temp_db forcing DB_BACKEND
+    to "sqlite": avoids the exact class of bug hit earlier, where a shell
+    env var leaking into the test process caused the wrong backend to be
+    selected and a required import to be skipped."""
+    import rag.dedup.near as near_module
+    fresh_backend = near_module._MemoryBackend()
+    monkeypatch.setattr(near_module, "_memory_backend", fresh_backend)
+    monkeypatch.setattr("config.NEAR_DUP_BACKEND", "memory")
+    yield fresh_backend
 
 
 @pytest.fixture

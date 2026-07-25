@@ -12,6 +12,12 @@ pipeline.py -- orchestrates the full ingestion pipeline:
          b. Compute embedding_text (table-aware via tables.py)
          c. Semantic duplicate (embedding similarity)     -> link, skip indexing
          d. Otherwise: store + add vector to index
+
+Whenever the vector index actually changes (a removal from versioning, or a
+new vector added), it's persisted to disk once before returning -- see
+config.FAISS_INDEX_PATH and rag/storage/indexing.py's save(). This is what
+lets server.py's lifespan load a ready-to-use index on the next startup
+instead of re-embedding the entire corpus from scratch every time.
 """
 
 import uuid
@@ -34,9 +40,18 @@ from rag.storage.db import (
 from rag.storage.indexing import vector_index
 
 
+def _save_index_if_mutated(mutated: bool):
+    if not mutated:
+        return
+    from config import FAISS_INDEX_PATH   # imported here, not at module top,
+                                            # so tests can monkeypatch it per-test
+    vector_index.save(FAISS_INDEX_PATH)
+
+
 def ingest_document(filename: str, text: str, source_uri: str = None) -> dict:
     source_uri = source_uri or filename
     doc_hash = hash_text(text)
+    index_mutated = False
 
     # --- 0. GLOBAL exact-content duplicate check (cheapest, filename-independent) ---
     # Runs before anything else: byte-identical content skips entirely, no
@@ -59,6 +74,7 @@ def ingest_document(filename: str, text: str, source_uri: str = None) -> dict:
     if existing:
         stale_chunk_ids = mark_document_stale(existing["doc_id"])
         vector_index.remove(stale_chunk_ids)
+        index_mutated = True
         version = existing["version"] + 1
 
     # --- 2. Near-duplicate document-level (MinHash/LSH) ----------------------
@@ -69,11 +85,13 @@ def ingest_document(filename: str, text: str, source_uri: str = None) -> dict:
     register_document(doc_id, text)
 
     if near_dup_doc_id:
+        _save_index_if_mutated(index_mutated)   # a version-bump removal may have happened above
         return {"status": "skipped_near_duplicate", "doc_id": doc_id, "near_dup_of": near_dup_doc_id, "version": version}
 
     # --- 3. Chunk into parent + small -----------------------------------------
     parent_groups = chunk_document(text)
     if not parent_groups:
+        _save_index_if_mutated(index_mutated)
         return {"status": "ingested_no_content", "doc_id": doc_id, "chunks": 0, "version": version}
 
     total_small_chunks = 0
@@ -128,6 +146,9 @@ def ingest_document(filename: str, text: str, source_uri: str = None) -> dict:
             # --- 4d. Genuinely new: store + index ----------------------------
             insert_small_chunk(small_chunk_id, doc_id, parent_chunk_id, i, rec["text"], embedding_text, rec["hash"])
             vector_index.add(vector, [small_chunk_id])
+            index_mutated = True
+
+    _save_index_if_mutated(index_mutated)
 
     return {
         "status": "ingested",

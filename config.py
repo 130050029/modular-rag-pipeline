@@ -11,12 +11,33 @@ import os
 # ---------------------------------------------------------------------------
 # Storage
 # ---------------------------------------------------------------------------
-# This is the ONE line that changes if you point storage somewhere else --
-# a different local path, a path outside the repo, or (with a corresponding
-# change to rag/storage/db.py's connection logic -- see README) a real
-# Postgres/other database on another machine entirely. Everything else in
-# the codebase only ever imports DB_PATH from here, never hardcodes it.
+# "sqlite" (default, zero-setup) or "postgres". See rag/storage/connection.py
+# for how both are supported behind one interface -- db.py's queries never
+# change regardless of which backend is active.
+DB_BACKEND = os.environ.get("DB_BACKEND", "sqlite")
+
+# Used only when DB_BACKEND == "sqlite".
 DB_PATH = "data/rag.db"
+
+# Persisted vector index location -- produces <FAISS_INDEX_PATH>.faiss and
+# <FAISS_INDEX_PATH>.meta.json. Without this, every server restart re-runs
+# the embedding model over every indexable chunk in the corpus, which at
+# real scale (millions of chunks) turns a restart into a multi-hour
+# operation. See rag/storage/indexing.py's save()/load_from_disk() and
+# server.py's lifespan.
+FAISS_INDEX_PATH = "data/faiss_index"
+
+# Used only when DB_BACKEND == "postgres". These defaults are placeholders
+# for local development ONLY -- never commit real credentials here. Proper
+# secret management (reading exclusively from the environment, or a secrets
+# manager, with no fallback default at all) is a planned follow-up; for now
+# this at least keeps credentials out of hardcoded Python values and lets
+# each environment override via its own env vars.
+POSTGRES_HOST = os.environ.get("POSTGRES_HOST", "localhost")
+POSTGRES_PORT = int(os.environ.get("POSTGRES_PORT", "5432"))
+POSTGRES_DB = os.environ.get("POSTGRES_DB", "rag_dev")
+POSTGRES_USER = os.environ.get("POSTGRES_USER", "rag_dev")
+POSTGRES_PASSWORD = os.environ.get("POSTGRES_PASSWORD", "rag_dev_password")
 
 # ---------------------------------------------------------------------------
 # Embedding model
@@ -50,8 +71,29 @@ TABLE_EMBEDDING_DESCRIPTION = "template"
 # ---------------------------------------------------------------------------
 MINHASH_NUM_PERM = 128          # number of hash functions in each MinHash signature
 MINHASH_SHINGLE_SIZE = 9        # words per shingle (long enough to be a meaningful signal)
-NEAR_DUP_JACCARD_THRESHOLD = 0.8    # doc-level near-duplicate cutoff (MinHash/LSH)
+NEAR_DUP_JACCARD_THRESHOLD = 0.8    # doc-level near-duplicate cutoff (MinHash/LSH; "memory" backend only)
 SEMANTIC_DUP_COSINE_THRESHOLD = 0.95  # chunk-level semantic-duplicate cutoff (embeddings)
+
+# ---------------------------------------------------------------------------
+# Near-duplicate detection backend
+# ---------------------------------------------------------------------------
+# "memory" (default) -- datasketch's MinHashLSH, in-process. Fast, zero
+#   setup, but lost on restart and not shared across multiple app replicas.
+# "redis" -- manual LSH banding stored in Redis sets. Persists across
+#   restarts and is shared consistently across every app replica reading
+#   the same Redis instance.
+NEAR_DUP_BACKEND = os.environ.get("NEAR_DUP_BACKEND", "memory")
+
+REDIS_HOST = os.environ.get("REDIS_HOST", "localhost")
+REDIS_PORT = int(os.environ.get("REDIS_PORT", "6379"))
+REDIS_DB = int(os.environ.get("REDIS_DB", "0"))
+
+# MUST be fixed and explicit -- datasketch generates a random basename if
+# none is given, which means two separate processes would each silently get
+# their own private, disconnected index, defeating the entire point of a
+# shared Redis-backed index. Verified this failure mode directly against a
+# real Redis instance before settling on this design.
+NEAR_DUP_REDIS_BASENAME = b"modular_rag_pipeline_near_dup_lsh"
 
 
 # ---------------------------------------------------------------------------

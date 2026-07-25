@@ -1,30 +1,36 @@
 """
-near_dedup.py -- document-level NEAR-duplicate detection via MinHash + LSH.
+near.py -- document-level NEAR-duplicate detection via MinHash + LSH.
 
-Catches "same content, different wording/formatting/minor edits" cases that
-exact hashing (dedup.py) can't, without the O(n^2) cost of comparing every
-new document against every existing one.
+Two backends, selected via config.NEAR_DUP_BACKEND:
+  "memory" (default) -- datasketch's MinHashLSH with its default in-process
+                          storage. Fast, zero setup, but lost on restart and
+                          not shared across multiple app replicas.
+  "redis"             -- the SAME MinHashLSH class, using datasketch's own
+                          built-in Redis storage layer
+                          (storage_config={"type": "redis", ...}) rather
+                          than a hand-rolled banding implementation. This
+                          persists across restarts and is shared
+                          consistently across every app replica pointed at
+                          the same Redis instance -- and reuses datasketch's
+                          own optimal band/row parameter search internally,
+                          the same one the "memory" backend benefits from,
+                          rather than an approximated fixed banding scheme.
 
-How it works (recap of what we walked through):
-  1. Shingle the document into overlapping word n-grams.
-  2. MinHash: compress the shingle set into a small, fixed-size signature
-     such that similar documents produce similar signatures.
-  3. LSH: bucket documents by bands of their signature, so only documents
-     sharing at least one full band even get compared -- turning "compare
-     against everyone" into "compare against a tiny candidate set."
+IMPORTANT (verified against a real Redis instance, not assumed): the Redis
+storage_config's "basename" MUST be a fixed, explicit value -- datasketch
+generates a random one if omitted, which means two separate processes would
+each silently get their own private, disconnected index, defeating the
+entire point of using Redis. config.NEAR_DUP_REDIS_BASENAME below exists
+specifically to avoid this.
 
-Uses the `datasketch` library rather than a hand-rolled implementation --
-this is exactly what you'd reach for in real code (pip install datasketch).
-
-LIMITATION (toy-project scale): the LSH index lives in memory only and is
-rebuilt from scratch on every server restart (see rebuild() in server.py).
-At real scale this would be a persistent, possibly distributed structure.
+The public interface (check_near_duplicate, register_document) is
+unchanged regardless of backend. The active backend is read fresh from
+config on every call (not cached at import time), so tests (and any
+runtime config change) can reliably override it.
 """
 
 from datasketch import MinHash, MinHashLSH
 from config import MINHASH_NUM_PERM, MINHASH_SHINGLE_SIZE, NEAR_DUP_JACCARD_THRESHOLD
-
-_lsh = MinHashLSH(threshold=NEAR_DUP_JACCARD_THRESHOLD, num_perm=MINHASH_NUM_PERM)
 
 
 def _shingles(text: str, k: int = MINHASH_SHINGLE_SIZE) -> set[str]:
@@ -41,15 +47,76 @@ def compute_minhash(text: str) -> MinHash:
     return m
 
 
+# ---------------------------------------------------------------------------
+# Backend: in-memory (datasketch's default in-process storage)
+# ---------------------------------------------------------------------------
+class _MemoryBackend:
+    def __init__(self):
+        self._lsh = MinHashLSH(threshold=NEAR_DUP_JACCARD_THRESHOLD, num_perm=MINHASH_NUM_PERM)
+
+    def check(self, minhash: MinHash):
+        matches = self._lsh.query(minhash)
+        return matches[0] if matches else None
+
+    def register(self, doc_id: str, minhash: MinHash):
+        self._lsh.insert(doc_id, minhash)
+
+
+_memory_backend = _MemoryBackend()
+
+
+# ---------------------------------------------------------------------------
+# Backend: Redis (datasketch's built-in Redis storage layer)
+# ---------------------------------------------------------------------------
+class _RedisBackend:
+    def __init__(self):
+        from config import REDIS_HOST, REDIS_PORT, REDIS_DB, NEAR_DUP_REDIS_BASENAME
+
+        self._lsh = MinHashLSH(
+            threshold=NEAR_DUP_JACCARD_THRESHOLD,
+            num_perm=MINHASH_NUM_PERM,
+            storage_config={
+                "type": "redis",
+                "basename": NEAR_DUP_REDIS_BASENAME,   # fixed -- see module docstring
+                "redis": {"host": REDIS_HOST, "port": REDIS_PORT, "db": REDIS_DB},
+            },
+        )
+
+    def check(self, minhash: MinHash):
+        matches = self._lsh.query(minhash)
+        return matches[0] if matches else None
+
+    def register(self, doc_id: str, minhash: MinHash):
+        self._lsh.insert(doc_id, minhash)
+
+
+_redis_backend = None   # lazily constructed -- see _get_redis_backend()
+
+
+def _get_redis_backend() -> _RedisBackend:
+    global _redis_backend
+    if _redis_backend is None:
+        _redis_backend = _RedisBackend()
+    return _redis_backend
+
+
+# ---------------------------------------------------------------------------
+# Public interface
+# ---------------------------------------------------------------------------
 def check_near_duplicate(text: str) -> str | None:
-    """Returns the doc_id of a near-duplicate already in the LSH index, or None."""
-    m = compute_minhash(text)
-    matches = _lsh.query(m)
-    return matches[0] if matches else None
+    """Returns the doc_id of a near-duplicate already registered, or None."""
+    from config import NEAR_DUP_BACKEND
+
+    minhash = compute_minhash(text)
+    backend = _get_redis_backend() if NEAR_DUP_BACKEND == "redis" else _memory_backend
+    return backend.check(minhash)
 
 
 def register_document(doc_id: str, text: str):
-    """Add this document's MinHash signature to the LSH index so future
-    documents can be checked against it."""
-    m = compute_minhash(text)
-    _lsh.insert(doc_id, m)
+    """Adds this document's MinHash signature to the active backend's index
+    so future documents can be checked against it."""
+    from config import NEAR_DUP_BACKEND
+
+    minhash = compute_minhash(text)
+    backend = _get_redis_backend() if NEAR_DUP_BACKEND == "redis" else _memory_backend
+    backend.register(doc_id, minhash)

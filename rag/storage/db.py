@@ -1,18 +1,18 @@
 """
-db.py -- SQLite connection + schema. The "document store" half of the
-two-store design.
+db.py -- schema + queries for the "document store" half of the two-store
+design. Backend-agnostic: works against SQLite or Postgres depending on
+config.DB_BACKEND, via rag.storage.connection.Connection -- nothing in this
+file needs to know or care which one is active.
 
 NOTE: schema changed again -- delete rag.db before running.
 """
 
-import sqlite3
-from config import DB_PATH
+from datetime import datetime, timezone
+from rag.storage.connection import get_connection, Connection
 
 
-def get_db() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+def get_db() -> Connection:
+    return get_connection()
 
 
 def init_db():
@@ -70,12 +70,19 @@ def get_document_by_content_hash(doc_hash: str):
 
 
 def get_all_indexable_chunks():
-    """Non-stale, non-duplicate small chunks -- what belongs in the vector index."""
+    """Non-stale, non-duplicate small chunks -- what belongs in the vector index.
+
+    Ordered by chunk_id (not insertion order -- `rowid` was here originally,
+    but that's a SQLite-only implicit column with no Postgres equivalent).
+    Order doesn't affect correctness here, only reproducibility of which
+    positional int_id each chunk gets on rebuild -- deterministic either
+    way, just not insertion-order anymore.
+    """
     conn = get_db()
     rows = conn.execute(
         """SELECT chunk_id, embedding_text FROM chunks
            WHERE chunk_type = 'small' AND duplicate_of_chunk_id IS NULL AND is_stale = 0
-           ORDER BY rowid"""
+           ORDER BY chunk_id"""
     ).fetchall()
     conn.close()
     return rows
@@ -96,11 +103,16 @@ def get_latest_document_by_source(source_uri: str):
 
 def insert_document(doc_id: str, filename: str, source_uri: str, doc_hash: str,
                      version: int = 1, near_dup_of_doc_id: str = None):
+    # Computed in Python rather than using SQL's datetime('now') -- that
+    # function is SQLite-specific; Postgres's equivalent is NOW(), a
+    # different function entirely. Computing the timestamp here instead
+    # avoids needing two versions of this query.
+    ingested_at = datetime.now(timezone.utc).isoformat()
     conn = get_db()
     conn.execute(
         """INSERT INTO documents (doc_id, filename, source_uri, doc_hash, near_dup_of_doc_id, version, ingested_at)
-           VALUES (?, ?, ?, ?, ?, ?, datetime('now'))""",
-        (doc_id, filename, source_uri, doc_hash, near_dup_of_doc_id, version),
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (doc_id, filename, source_uri, doc_hash, near_dup_of_doc_id, version, ingested_at),
     )
     conn.commit()
     conn.close()
@@ -157,6 +169,32 @@ def get_chunk_by_content_hash(content_hash: str):
     ).fetchone()
     conn.close()
     return row["chunk_id"] if row else None
+
+
+def get_all_document_texts_for_near_dedup() -> dict[str, str]:
+    """Reconstructs each non-stale document's full text by concatenating its
+    PARENT chunks in position order. We don't store a document's original
+    raw text anywhere else (only per-chunk content) -- this reconstruction
+    is faithful for chunking's own purposes (parent chunks fully tile the
+    original text, by chunk_document()'s design) but is a derived
+    approximation of the literal original bytes (e.g. exact whitespace
+    isn't guaranteed identical), not a byte-for-byte copy. Used only to
+    rebuild the in-memory near-duplicate index at startup -- see
+    server.py's lifespan.
+    """
+    conn = get_db()
+    rows = conn.execute(
+        """SELECT doc_id, content FROM chunks
+           WHERE chunk_type = 'parent' AND is_stale = 0
+           ORDER BY doc_id, position"""
+    ).fetchall()
+    conn.close()
+
+    texts_by_doc: dict[str, list[str]] = {}
+    for row in rows:
+        texts_by_doc.setdefault(row["doc_id"], []).append(row["content"])
+
+    return {doc_id: " ".join(parts) for doc_id, parts in texts_by_doc.items()}
 
 
 def get_chunks_with_parent_by_ids(chunk_ids: list[str]):

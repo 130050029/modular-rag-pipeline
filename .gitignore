@@ -1,8 +1,12 @@
 # The actual database file -- generated at runtime, not part of the repo.
 # The data/ folder itself IS tracked (manual_test_files/, golden_set/) --
-# only the .db file inside it is excluded.
+# only generated database content is excluded.
 data/*.db
 data/*.db-journal
+data/postgres_data/
+data/redis_data/
+data/faiss_index.faiss
+data/faiss_index.meta.json
 
 # Python
 __pycache__/

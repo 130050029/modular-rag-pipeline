@@ -24,9 +24,10 @@ from fastapi import FastAPI, UploadFile, File
 from pydantic import BaseModel
 
 from config import HOST, PORT
-from rag.storage.db import init_db, get_all_indexable_chunks
+from rag.storage.db import init_db, get_all_indexable_chunks, get_all_document_texts_for_near_dedup
 from rag.embeddings import embed_texts
 from rag.storage.indexing import vector_index
+from rag.dedup.near import register_document
 from rag.ingestion.pipeline import ingest_document
 from rag.ingestion.extractors import extract_text
 from rag.retrieval import retrieve
@@ -36,13 +37,46 @@ from rag.generation import generate_answer
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
-    rows = get_all_indexable_chunks()
-    if rows:
-        contents = [r["embedding_text"] for r in rows]
-        chunk_ids = [r["chunk_id"] for r in rows]
-        vectors = embed_texts(contents)
-        vector_index.add(vectors, chunk_ids)
-        print(f"Rebuilt vector index with {len(rows)} indexable chunks from existing DB.")
+
+    # --- Vector index: try loading a persisted one first ----------------------
+    # Without this, every restart re-embeds the ENTIRE corpus from scratch --
+    # fine at toy scale, a genuinely severe problem at millions of chunks
+    # (a restart could take hours instead of being instant). Only fall back
+    # to the expensive full rebuild if nothing was persisted yet (e.g. first
+    # run, or the index files were deleted).
+    from config import FAISS_INDEX_PATH   # read fresh here, not at module top,
+                                            # so a monkeypatched value (tests) is honored
+    if vector_index.load_from_disk(FAISS_INDEX_PATH):
+        print(f"Loaded persisted vector index from disk ({vector_index.size} chunks) -- skipped re-embedding.")
+    else:
+        rows = get_all_indexable_chunks()
+        if rows:
+            contents = [r["embedding_text"] for r in rows]
+            chunk_ids = [r["chunk_id"] for r in rows]
+            vectors = embed_texts(contents)
+            vector_index.add(vectors, chunk_ids)
+            vector_index.save(FAISS_INDEX_PATH)
+            print(f"No persisted index found -- rebuilt from DB ({len(rows)} chunks) and saved for next startup.")
+
+    # --- Near-duplicate index: only the "memory" backend needs rebuilding -----
+    # The "redis" backend persists itself (as long as Redis's own data
+    # directory is bind-mounted -- see docker-compose.yml), so nothing to do
+    # there. The in-memory backend has no persistence of its own at all, so
+    # every restart otherwise loses near-dup awareness of already-ingested
+    # documents entirely. We don't store a document's raw original text
+    # anywhere, so this reconstructs it from parent chunks (see
+    # get_all_document_texts_for_near_dedup's docstring for the caveat on
+    # exactness) -- cheap relative to re-embedding, since MinHash is just
+    # hashing, no model inference involved.
+    from config import NEAR_DUP_BACKEND   # read fresh here, not at module top,
+                                            # so a monkeypatched value (tests) is honored
+    if NEAR_DUP_BACKEND == "memory":
+        doc_texts = get_all_document_texts_for_near_dedup()
+        for doc_id, text in doc_texts.items():
+            register_document(doc_id, text)
+        if doc_texts:
+            print(f"Rebuilt near-duplicate index (memory backend) with {len(doc_texts)} documents.")
+
     yield
 
 
