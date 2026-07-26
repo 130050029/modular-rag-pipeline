@@ -16,3 +16,9 @@ def test_html_extraction_strips_tags():
 def test_unsupported_extension_raises():
     with pytest.raises(ValueError):
         extract_text("data.xyz", b"whatever")
+
+
+def test_image_without_docling_configured_raises_clear_error(monkeypatch):
+    monkeypatch.setattr("config.PDF_EXTRACTION_METHOD", "pymupdf")
+    with pytest.raises(RuntimeError, match="docling"):
+        extract_text("photo.png", b"fake image bytes")

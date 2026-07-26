@@ -4,7 +4,7 @@ A modular, end-to-end Retrieval-Augmented Generation (RAG) pipeline built with F
 
 ## Features
 
-- **Multi-format ingestion**: plain text, Markdown, HTML, and PDF, dispatched through a pluggable extractor registry
+- **Multi-format ingestion**: plain text, Markdown, HTML, PDF, and (via Docling) images, dispatched through a pluggable extractor registry with a configurable PDF/image extraction method (PyMuPDF or Docling)
 - **Three-layer deduplication**: exact (content hash), near-duplicate (MinHash + LSH), and semantic (embedding similarity)
 - **Document versioning**: re-ingesting an updated document soft-deletes the previous version and removes its vectors from the live index
 - **Parent/child chunking**: small chunks are embedded and searched; their parent chunks are what get passed to the LLM, keeping retrieval precise and generated context complete
@@ -113,6 +113,20 @@ Without persistence, every server restart re-runs the embedding model over every
 
 The near-duplicate index gets the equivalent treatment: the `"memory"` backend is rebuilt at startup too (reconstructed from stored parent chunks, since raw document text isn't persisted separately — see `get_all_document_texts_for_near_dedup()`'s docstring for the caveat on exactness), and the `"redis"` backend persists on its own as long as Redis's data directory is bind-mounted (see `docker-compose.yml`).
 
+### PDF/image extraction method: PyMuPDF or Docling
+
+Set via `config.PDF_EXTRACTION_METHOD` (or the `PDF_EXTRACTION_METHOD` environment variable): `"pymupdf"` (default) or `"docling"`.
+
+```bash
+export PDF_EXTRACTION_METHOD=docling
+pip install docling   # heavy -- pulls in torch and several ML models
+python server.py
+```
+
+Docling ([MIT-licensed](https://github.com/DS4SD/docling), IBM-developed, now under the Linux Foundation's Agentic AI Foundation) outputs Markdown with tables preserved as real Markdown tables — automatically picked up by the existing table-detection logic in `rag/ingestion/tables.py`, no extra code needed. It's also the only option here that supports image files (`.png`/`.jpg`/`.jpeg`, via OCR) — PyMuPDF handles PDFs only. The tradeoff: meaningfully heavier and slower per document, since it runs real ML models (layout detection, table structure recognition, OCR) rather than pure text extraction.
+
+**Not verified end-to-end by the author** — this was implemented against Docling's documented API but the dependency was too large to install in the development environment. `tests/test_docling_integration.py` runs a real extraction if `docling` is installed (skips otherwise); `manual_test_docling.py` is a standalone script for testing against your own PDFs directly (it's a pure function — no database or index is touched, nothing to clean up). Verify both yourself before relying on this in real use.
+
 ### Near-duplicate detection backend: in-memory or Redis
 
 Set via `config.NEAR_DUP_BACKEND` (or the `NEAR_DUP_BACKEND` environment variable): `"memory"` (default) or `"redis"`.
@@ -150,7 +164,7 @@ Watch the startup output — `init_db()` runs `CREATE TABLE IF NOT EXISTS` again
 ### Visualizing database contents
 
 - **SQLite**: VSCode "SQLite Viewer" extension, [DB Browser for SQLite](https://sqlitebrowser.org/), or `sqlite3 data/rag.db "..."`.
-- **Postgres**: VSCode "SQLTools" (`mtxr.sqltools`) with the PostgreSQL driver (`mtxr.sqltools-driver-pg`). Connect with: host `localhost`, port `5432`, database `rag_dev`, username `rag_dev`, password `dev_password_change_me` (matching `docker-compose.yml`'s defaults).
+- **Postgres**: VSCode "SQLTools" (`mtxr.sqltools`) with the PostgreSQL driver (`mtxr.sqltools-driver-pg`). Connect with: host `localhost`, port `5432`, database `rag_dev`, username `rag_dev`, password `rag_dev_password` (matching `docker-compose.yml`'s defaults).
 - **Either**: [DBeaver](https://dbeaver.io/) (free) supports both SQLite and Postgres in one tool.
 
 ## Concept reference
@@ -161,6 +175,7 @@ Watch the startup output — `init_db()` runs `CREATE TABLE IF NOT EXISTS` again
 | Semantic chunking | `rag/ingestion/chunking.py` | `_split_semantic()` |
 | Parent/child chunk structure | `rag/ingestion/chunking.py`, `rag/storage/db.py` | `chunk_document()`, `get_chunks_with_parent_by_ids()` |
 | Multi-format extraction | `rag/ingestion/extractors.py` | `EXTRACTORS` registry |
+| Configurable PDF/image extraction (PyMuPDF or Docling) | `rag/ingestion/extractors.py` | `_extract_pdf()`, `_extract_with_docling()` |
 | Table detection and embedding description | `rag/ingestion/tables.py` | `split_table_blocks()`, `get_embedding_text()` |
 | Configurable storage backend (SQLite/Postgres) | `rag/storage/connection.py` | `Connection`, `get_connection()` |
 | Exact duplicate detection (filename-independent) | `rag/storage/db.py` | `get_document_by_content_hash()` |
@@ -187,6 +202,7 @@ The test suite mirrors the module structure:
 | `test_storage_db.py`, `test_storage_indexing.py` | Document store and vector index, including versioning and vector removal |
 | `test_postgres_integration.py` | The one file that runs against a REAL Postgres instance rather than the forced-SQLite default (see below) |
 | `test_redis_integration.py` | The one file that runs against a REAL Redis instance rather than the forced-in-memory default (see below) |
+| `test_docling_integration.py` | Runs real Docling extraction if installed (skips otherwise) -- pure function, no cleanup needed |
 | `test_ingestion_pipeline.py` | End-to-end pipeline behavior (dedup, versioning) |
 | `test_retrieval.py` | Retrieval mechanics |
 | `test_api.py` | HTTP-level tests against the running FastAPI application |
@@ -207,14 +223,28 @@ docker compose up -d
 pytest tests/test_redis_integration.py -v
 ```
 
+**Testing Docling extraction specifically**: `test_docling_integration.py` skips if `docling` isn't installed. Being a pure function (no database, no external service), it needs no setup beyond installing the package:
+
+```bash
+pip install docling
+pytest tests/test_docling_integration.py -v
+```
+
+For manually testing against your own real PDFs (including ones with actual tables, which the test's synthetic sample doesn't have):
+
+```bash
+python manual_test_docling.py /path/to/your/document.pdf
+```
+
 ## Planned enhancements
 
 Deliberately deferred work, kept here so intent isn't lost between sessions:
 
+- **Run Docling as a separate service, not in-process.** Currently, `PDF_EXTRACTION_METHOD=docling` imports `docling` directly into the API server process -- meaning its ML models (layout detection, table structure, OCR) load into and run inside the same process handling HTTP requests, unlike Postgres/Redis/an LLM call, all of which are network calls to an already-running separate process. At scale this is a real problem: memory footprint on every API replica, request-handling workers blocked for the duration of each conversion (seconds to tens of seconds), and a resource-profile mismatch between the lightweight API layer and CPU/GPU-heavy document processing. **`docling-serve`** (the Docling project's own officially maintained sibling project — a FastAPI microservice, distributed as ready-made container images, with async job endpoints and a Redis-backed job queue for real scale) is the natural fix, run the same way Postgres/Redis already are in `docker-compose.yml`, with `extractors.py` making an HTTP call to it instead of importing `docling` directly. Not a small change (synchronous in-process call → async HTTP call with timeout/failure handling and job polling for larger documents), but well-supported by existing official tooling rather than something to build from scratch.
+
 - **CI via GitHub Actions.** Run `pytest tests/` automatically on every push, including a Postgres service container so `test_postgres_integration.py` runs for real in CI, not just locally when a developer happens to have `docker compose up -d` running. A standard GitHub Actions workflow with a `services: postgres:` block covers this; not expected to be difficult to set up.
 
 - **PySpark-based batch near-duplicate detection.** `rag/dedup/near.py` now supports "memory" and "redis" backends (both suited to real-time, per-upload checking). A Spark-based batch job (`pyspark.ml.feature.MinHashLSH`) is a different tier of solution, suited to periodic full-corpus re-scans across millions of documents rather than live request-time checks -- likely to coexist with, not replace, the real-time backends above.
-- **Layout-aware document extraction (Docling / Unstructured.io).** To properly extract tables from PDFs and handle images (OCR), rather than the current raw-text-only PDF extraction and complete absence of image support. Would slot into `rag/ingestion/extractors.py` as an additional extractor path.
 - **File storage.** Raw uploaded files are currently processed and discarded, never persisted. Production systems store the original file in object storage (S3 or equivalent) and keep a reference (not the bytes) in the database — enabling source-document display, re-processing without re-upload, compliance retention, and debugging bad extractions. Planned as a `FileStorage` interface mirroring the `DB_BACKEND` pattern: a `LocalDiskBackend` (writing to `data/uploads/`, simulating object storage for local dev) and an `S3Backend` selected via config.
 - **A real UI.** Currently Swagger/curl only; a minimal frontend (upload, chat, source display with links back to original documents) would depend on file storage being in place first.
 - **Chat session management and context compaction.** No conversation/session concept currently exists — each `/chat` call is stateless. A real system needs session storage, multi-turn context, and a strategy for summarizing or truncating conversation history once it grows too long for the context window.
@@ -225,7 +255,7 @@ Deliberately deferred work, kept here so intent isn't lost between sessions:
 
 - Vector search uses exact brute-force search (`IndexFlatIP`); an approximate index (HNSW/IVF) is a planned addition, isolated to `rag/storage/indexing.py`. The index itself is now persisted to disk (`config.FAISS_INDEX_PATH`) and loaded on startup rather than re-embedded from scratch every restart — see Configuration below.
 - Retrieval is dense-only; no hybrid (BM25) retrieval, reranking, or query rewriting yet.
-- Table detection works on already-Markdown-formatted tables in text/HTML/Markdown sources; it does not extract or reconstruct tables from PDFs or images (see Planned enhancements).
+- Table detection works on already-Markdown-formatted tables. PDF/image extraction now supports Docling (`config.PDF_EXTRACTION_METHOD = "docling"`), which outputs tables as real Markdown — picked up automatically by the existing table detection — but this path was implemented against Docling's documented API and has **not been run end-to-end** (it's too large a dependency to install in the environment this was developed in). Verify it directly before relying on it. The default `"pymupdf"` method remains raw-text-only, with no table structure and no image support at all.
 - Document versioning uses filename as the identity key; a production system would use a stable external identifier.
 - The near-duplicate index is rebuilt at startup for the `"memory"` backend (reconstructed from stored parent chunks, since raw document text isn't stored separately) and persists on its own for the `"redis"` backend (as long as Redis's data directory is bind-mounted — see `docker-compose.yml`). A Spark-based batch alternative for full-corpus scans is still planned (see Planned enhancements).
 - The SQLite/Postgres storage adapter (`rag/storage/connection.py`) does not handle schema migrations, connection pooling, or SQL dialect differences beyond placeholders — see the Configuration section above.

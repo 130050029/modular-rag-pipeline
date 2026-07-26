@@ -20,3 +20,11 @@ psycopg[binary]
 # Only needed if config.NEAR_DUP_BACKEND is set to "redis" -- not required
 # for the default in-memory backend.
 redis
+
+# Only needed if config.PDF_EXTRACTION_METHOD is set to "docling" -- not
+# required for the default "pymupdf" method. This is a genuinely heavy
+# dependency (pulls in torch and several ML models for layout/table/OCR),
+# noticeably slower to install and to run per-document than pymupdf. Only
+# install this if you specifically need table extraction from PDFs or any
+# image support -- neither works without it.
+docling

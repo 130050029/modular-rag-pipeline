@@ -59,6 +59,19 @@ SEMANTIC_CHUNK_SIMILARITY_DROP = 0.35   # similarity drop that triggers a new ch
 SEMANTIC_CHUNK_MAX_WORDS = 200          # safety cap so one chunk can't grow unbounded
 
 # ---------------------------------------------------------------------------
+# PDF/image extraction method
+# ---------------------------------------------------------------------------
+# "pymupdf" (default) -- fast, lightweight, raw text only. Does not preserve
+#   table structure, and cannot handle images at all.
+# "docling" -- IBM's open-source (MIT) document intelligence toolkit. Slower
+#   and pulls in real ML models (layout detection, table structure
+#   recognition, OCR) as dependencies, but outputs Markdown WITH tables
+#   preserved as real Markdown tables -- meaning they're automatically
+#   picked up by our existing is_table_like()/split_into_segments() logic,
+#   no extra code needed. Also the only option that supports images (via OCR).
+PDF_EXTRACTION_METHOD = os.environ.get("PDF_EXTRACTION_METHOD", "pymupdf")
+
+# ---------------------------------------------------------------------------
 # Table handling
 # ---------------------------------------------------------------------------
 # "template" = cheap, deterministic description (column names + row count)

@@ -14,6 +14,7 @@ data/
 | `sample_markdown.md` | Markdown extraction |
 | `sample_page.html` | HTML extraction (`<script>`/`<footer>` content should be stripped) |
 | `sample_document.pdf` | PDF extraction via PyMuPDF |
+| `sample_table.png` | Docling table extraction (image → Markdown table) -- requires `PDF_EXTRACTION_METHOD=docling` |
 | `near_duplicate_a.txt` + `near_duplicate_b.txt` | Upload both. The second returns `skipped_near_duplicate`. |
 | `table_sample.txt` | Contains a Markdown table. The table becomes its own chunk with a generated `embedding_text` description, separate from the surrounding prose. |
 | `versioning_v1.txt` + `versioning_v2.txt` | Versioning + soft-delete. See below — requires uploading both under the same filename. |
