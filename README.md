@@ -1,5 +1,8 @@
 # Modular RAG Pipeline
 
+<!-- Replace YOUR_USERNAME below with your actual GitHub username once pushed -->
+![Tests](https://github.com/130050029/modular-rag-pipeline/actions/workflows/tests.yml/badge.svg)
+
 A modular, end-to-end Retrieval-Augmented Generation (RAG) pipeline built with FastAPI, FAISS, and sentence-transformers. It implements document ingestion with multi-format extraction, a three-layer deduplication strategy, document versioning with soft-delete, parent/child chunking, and table-aware embedding — each concern isolated into its own module so individual components can be understood, tested, and replaced independently.
 
 ## Features
@@ -119,7 +122,6 @@ Set via `config.PDF_EXTRACTION_METHOD` (or the `PDF_EXTRACTION_METHOD` environme
 
 ```bash
 export PDF_EXTRACTION_METHOD=docling
-pip install docling   # heavy -- pulls in torch and several ML models
 python server.py
 ```
 
@@ -187,6 +189,10 @@ Watch the startup output — `init_db()` runs `CREATE TABLE IF NOT EXISTS` again
 | Vector search (exact, brute-force) | `rag/storage/indexing.py` | `build_base_index()` |
 | Vector index persistence (avoids re-embedding on restart) | `rag/storage/indexing.py`, `server.py` | `VectorIndex.save()`, `load_from_disk()`, `lifespan()` |
 
+## Continuous integration
+
+`.github/workflows/tests.yml` runs the full test suite on every push and pull request, with real Postgres and Redis service containers (matching `config.py`'s default connection settings exactly, so no extra environment configuration is needed) — this is what makes `test_postgres_integration.py` and `test_redis_integration.py` actually run in CI, not just skip. `docling` is included in `requirements.txt`, so `test_docling_integration.py` runs for real too.
+
 ## Testing
 
 ```bash
@@ -223,10 +229,9 @@ docker compose up -d
 pytest tests/test_redis_integration.py -v
 ```
 
-**Testing Docling extraction specifically**: `test_docling_integration.py` skips if `docling` isn't installed. Being a pure function (no database, no external service), it needs no setup beyond installing the package:
+**Testing Docling extraction specifically**: `test_docling_integration.py` skips if `docling` isn't installed, but it's included in `requirements.txt` by default, so it should just run:
 
 ```bash
-pip install docling
 pytest tests/test_docling_integration.py -v
 ```
 
@@ -242,7 +247,6 @@ Deliberately deferred work, kept here so intent isn't lost between sessions:
 
 - **Run Docling as a separate service, not in-process.** Currently, `PDF_EXTRACTION_METHOD=docling` imports `docling` directly into the API server process -- meaning its ML models (layout detection, table structure, OCR) load into and run inside the same process handling HTTP requests, unlike Postgres/Redis/an LLM call, all of which are network calls to an already-running separate process. At scale this is a real problem: memory footprint on every API replica, request-handling workers blocked for the duration of each conversion (seconds to tens of seconds), and a resource-profile mismatch between the lightweight API layer and CPU/GPU-heavy document processing. **`docling-serve`** (the Docling project's own officially maintained sibling project — a FastAPI microservice, distributed as ready-made container images, with async job endpoints and a Redis-backed job queue for real scale) is the natural fix, run the same way Postgres/Redis already are in `docker-compose.yml`, with `extractors.py` making an HTTP call to it instead of importing `docling` directly. Not a small change (synchronous in-process call → async HTTP call with timeout/failure handling and job polling for larger documents), but well-supported by existing official tooling rather than something to build from scratch.
 
-- **CI via GitHub Actions.** Run `pytest tests/` automatically on every push, including a Postgres service container so `test_postgres_integration.py` runs for real in CI, not just locally when a developer happens to have `docker compose up -d` running. A standard GitHub Actions workflow with a `services: postgres:` block covers this; not expected to be difficult to set up.
 
 - **PySpark-based batch near-duplicate detection.** `rag/dedup/near.py` now supports "memory" and "redis" backends (both suited to real-time, per-upload checking). A Spark-based batch job (`pyspark.ml.feature.MinHashLSH`) is a different tier of solution, suited to periodic full-corpus re-scans across millions of documents rather than live request-time checks -- likely to coexist with, not replace, the real-time backends above.
 - **File storage.** Raw uploaded files are currently processed and discarded, never persisted. Production systems store the original file in object storage (S3 or equivalent) and keep a reference (not the bytes) in the database — enabling source-document display, re-processing without re-upload, compliance retention, and debugging bad extractions. Planned as a `FileStorage` interface mirroring the `DB_BACKEND` pattern: a `LocalDiskBackend` (writing to `data/uploads/`, simulating object storage for local dev) and an `S3Backend` selected via config.

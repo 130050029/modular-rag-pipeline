@@ -1,0 +1,63 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    # Real Postgres and Redis, matching config.py's default connection
+    # settings exactly (host/port/db/user/password) -- GitHub Actions
+    # service containers are reachable via localhost from the job itself
+    # (the ports: mapping below is what makes that true), so no extra
+    # env vars need to be set for our tests to find them.
+    #
+    # This is what makes test_postgres_integration.py and
+    # test_redis_integration.py actually RUN in CI (not just skip) --
+    # without these services, they'd skip cleanly, same as running
+    # locally without `docker compose up -d`.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: rag_dev
+          POSTGRES_PASSWORD: rag_dev_password
+          POSTGRES_DB: rag_dev
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run tests
+        # Same FAISS + torch OpenMP workaround server.py and
+        # tests/conftest.py already set for local runs -- CI is a separate
+        # process environment, so it needs setting here too.
+        env:
+          KMP_DUPLICATE_LIB_OK: "TRUE"
+          OMP_NUM_THREADS: "1"
+        run: pytest tests/ -v
