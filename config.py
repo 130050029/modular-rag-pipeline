@@ -8,6 +8,19 @@ there's exactly one place to change it.
 
 import os
 
+# MUST run before faiss or torch/sentence-transformers get imported anywhere,
+# directly or transitively -- both bundle their own OpenMP runtime, and
+# loading both in one process can otherwise segfault or abort (macOS:
+# "OMP: Error #15: Initializing libomp.dylib, but found libomp.dylib
+# already initialized"). Centralized HERE rather than repeated in every
+# entry point (server.py, tests/conftest.py, eval_retrieval.py, ...) --
+# config.py is imported first by all of them, so this is the one place
+# that reliably runs before any faiss/torch import, and a future new
+# script can't forget to add it (a mistake already made once for
+# eval_retrieval.py before this was centralized).
+os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+
 # ---------------------------------------------------------------------------
 # Storage
 # ---------------------------------------------------------------------------
@@ -114,7 +127,38 @@ NEAR_DUP_REDIS_BASENAME = b"modular_rag_pipeline_near_dup_lsh"
 # ---------------------------------------------------------------------------
 # "flat" = exact brute-force (faiss.IndexFlatIP) -- fine at toy scale.
 # Will add "hnsw" as a second option here when we cover ANN indexing.
-INDEX_TYPE = "flat"
+# "flat" = exact brute-force (faiss.IndexFlatIP). True removal, but doesn't
+#   scale past a few thousand vectors.
+# "hnsw" = approximate graph search (faiss.IndexHNSWFlat), default. Much
+#   better query scaling; does NOT support true removal (see
+#   rag/storage/indexing.py's module docstring) -- soft-deleted vectors are
+#   tombstoned instead, permanently unreachable but still physically present
+#   until a future full rebuild.
+INDEX_TYPE = "hnsw"
+
+# ---------------------------------------------------------------------------
+# Vector search backend
+# ---------------------------------------------------------------------------
+# "faiss" (default) -- in-process FAISS index (HNSW or flat, per INDEX_TYPE
+#   above). The app server loads/holds the whole index in its own memory.
+# "qdrant" -- a separate Qdrant service the app talks to over the network,
+#   the same architectural pattern as Postgres/Redis. Verified directly to
+#   have two real advantages over our FAISS wrapper: no int_id<->chunk_id
+#   mapping needed (Qdrant accepts our UUID chunk_ids as point IDs
+#   natively), and TRUE deletion rather than tombstoning (Qdrant handles
+#   compaction internally, the same way it handles it for every user of
+#   the database -- not something our own code needs to reason about).
+VECTOR_BACKEND = os.environ.get("VECTOR_BACKEND", "faiss")
+
+QDRANT_HOST = os.environ.get("QDRANT_HOST", "localhost")
+QDRANT_PORT = int(os.environ.get("QDRANT_PORT", "6333"))
+QDRANT_COLLECTION = os.environ.get("QDRANT_COLLECTION", "rag_chunks")
+
+# HNSW tuning (only used when INDEX_TYPE == "hnsw"):
+HNSW_M = 32                 # graph connectivity -- neighbors per node (higher = better recall, more memory)
+HNSW_EF_CONSTRUCTION = 200   # search depth while BUILDING the graph (higher = better graph quality, slower build)
+HNSW_EF_SEARCH = 64          # search depth while QUERYING (higher = better recall, slower search)
+
 TOP_K = 4
 
 # ---------------------------------------------------------------------------

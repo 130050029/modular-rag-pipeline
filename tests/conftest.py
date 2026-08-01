@@ -16,20 +16,21 @@ Two important patterns worth understanding, not just copying:
    into each other.
 """
 
-# MUST run before faiss or torch/sentence-transformers get imported anywhere
-# -- pytest imports every test file during collection, and whichever one
-# happens to import rag.embeddings first will pull in torch; if that
-# happens before this line runs, FAISS's search() can segfault. See README.
-import os
-os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
-os.environ.setdefault("OMP_NUM_THREADS", "1")
-
 import sys
 from pathlib import Path
 
 # Ensure the project root (parent of tests/) is importable regardless of
-# where pytest is invoked from.
+# where pytest is invoked from -- MUST happen before `import config` below,
+# since config.py lives at the project root, not inside tests/.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+# Importing config here (before anything that might pull in faiss/torch)
+# is what applies its centralized KMP_DUPLICATE_LIB_OK/OMP_NUM_THREADS fix --
+# pytest imports every test file during collection, and whichever one
+# happens to import rag.embeddings first will pull in torch; if that
+# happens before this import runs, FAISS's search() can segfault. See
+# config.py's own comment for the full explanation.
+import config  # noqa: F401  (imported for its module-level side effect)
 
 import numpy as np
 import pytest

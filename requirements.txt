@@ -21,6 +21,11 @@ psycopg[binary]
 # for the default in-memory backend.
 redis
 
+# Only needed if config.VECTOR_BACKEND is set to "qdrant" -- not required
+# for the default in-process FAISS backend. Lightweight pure-Python client,
+# unlike docling below.
+qdrant-client
+
 # Only needed if config.PDF_EXTRACTION_METHOD is set to "docling" -- not
 # required for the default "pymupdf" method. Heavy (pulls in torch and
 # several ML models for layout detection, table structure recognition,

@@ -29,6 +29,27 @@ def test_remove_actually_excludes_from_search():
     assert idx.search(np.array([v1]), top_k=1) == []
 
 
+def test_hnsw_tombstone_vs_raw_faiss_count_diverge():
+    """HNSW (the default INDEX_TYPE) cannot truly remove a vector -- verified
+    directly against FAISS (remove_ids raises RuntimeError for this index
+    type). remove() falls back to deleting only from our own bookkeeping,
+    so idx.size (our live count) and the underlying FAISS index's raw
+    ntotal SHOULD diverge after a removal -- this test exists specifically
+    to catch a regression if that tombstone fallback ever silently stops
+    working."""
+    idx = VectorIndex()
+    v1, v2 = _unit_vector(1), _unit_vector(2)
+    idx.add(np.array([v1]), ["chunk-a"])
+    idx.add(np.array([v2]), ["chunk-b"])
+    idx.remove(["chunk-b"])
+
+    assert idx.size == 1                 # our live count: correctly decremented
+    assert idx._index.ntotal == 2        # FAISS's raw count: unchanged -- tombstoned, not deleted
+
+    results = idx.search(np.array([v2]), top_k=2)
+    assert results == [] or all(r[0] != "chunk-b" for r in results)
+
+
 def test_save_and_load_round_trip(tmp_path):
     """The persistence mechanism lifespan relies on to avoid re-embedding
     the entire corpus on every restart -- verify save() + load_from_disk()

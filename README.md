@@ -19,6 +19,48 @@ A modular, end-to-end Retrieval-Augmented Generation (RAG) pipeline built with F
 ## Architecture
 
 ```
+                    ┌─────────────────────────────┐
+                    │  Client (Swagger UI / curl)  │
+                    └───────────────┬─────────────┘
+                                    │
+                    ┌───────────────▼─────────────┐
+                    │  server.py -- FastAPI (thin) │
+                    │  lifespan(): load/rebuild    │
+                    │  indexes on startup          │
+                    └──┬────────────────────────┬──┘
+                       │                        │
+        ┌──────────────▼─────────────┐   ┌──────▼───────────────────────┐
+        │  INGESTION                 │   │  RETRIEVAL + GENERATION      │
+        │  extractors.py             │   │  retrieval.py                │
+        │  chunking.py               │   │    embed query -> search ->  │
+        │  dedup/ (exact->near->sem) │   │    fetch parent content      │
+        │  pipeline.py orchestrates  │   │  generation.py                │
+        │    all of the above        │   │    prompt + Claude API call   │
+        └──────────────┬─────────────┘   └───────────────┬───────────────┘
+                       │                                  │
+                       └───────────────┬──────────────────┘
+                                       │
+                         ┌─────────────▼─────────────┐
+                         │  STORAGE                  │
+                         │  db.py + connection.py     │
+                         │    (SQLite or Postgres)     │
+                         │  indexing.py                 │
+                         │    (FAISS HNSW/flat, or       │
+                         │     Qdrant service)             │
+                         └───────┬───────┬───────┬────────┘
+                                 │       │       │
+                    ┌────────────┘       │       └─────────────┐
+                    ▼                    ▼                     ▼
+              ┌──────────┐        ┌──────────┐          ┌──────────────┐
+              │ Postgres │        │  Redis   │          │   Qdrant     │
+              │(optional)│        │(optional)│          │  (optional)  │
+              └──────────┘        └──────────┘          └──────────────┘
+
+        Also optional, wired in separately: Docling (extraction) and the
+        Anthropic API (generation) -- see docker-compose.yml and config.py.
+```
+
+```
 config.py              Every tunable value in the project; nothing else hardcodes settings
 server.py               FastAPI application (thin wiring layer only)
 requirements.txt
@@ -110,6 +152,30 @@ Both backends are supported behind one interface (`rag/storage/connection.py`); 
 
 **On credentials**: the `POSTGRES_PASSWORD` default in `config.py` is a placeholder for local development only. It is read from an environment variable with a fallback value — adequate to avoid a hardcoded secret in source, but not a substitute for real secret management (a secrets manager, or an environment with no fallback default at all) in any shared or production environment.
 
+### Vector search backend: in-process FAISS or Qdrant
+
+Set via `config.VECTOR_BACKEND`: `"faiss"` (default, in-process) or `"qdrant"` (separate service, matching the same architectural pattern as Postgres/Redis).
+
+```bash
+docker compose up -d
+export VECTOR_BACKEND=qdrant
+python server.py
+```
+
+Two real, verified advantages over the FAISS wrapper: Qdrant accepts our UUID `chunk_id`s directly as point IDs (no `int_id` mapping layer needed at all, unlike `rag/storage/indexing.py`'s FAISS wrapper), and it supports **true deletion** rather than tombstoning — Qdrant handles reclaiming that space internally, not something this codebase needs to reason about for that backend. `save()`/`load_from_disk()` are no-ops for Qdrant (it persists continuously on its own, as long as its data directory is bind-mounted — see `docker-compose.yml`), which is why `server.py`'s `lifespan` needs no Qdrant-specific branching at all.
+
+**One constraint, verified directly**: Qdrant point IDs must be either unsigned integers or genuine UUID strings — this is naturally satisfied since `rag/ingestion/pipeline.py` always generates real `str(uuid.uuid4())` chunk_ids, but worth knowing if you ever extend the ID scheme.
+
+**A real risk worth knowing, not hidden**: `vector_index` is a singleton, constructed exactly once when `rag/storage/indexing.py` is first imported — unlike `rag/storage/connection.py`'s `Connection`, which is created fresh on every call. If `VECTOR_BACKEND=qdrant` is set but Qdrant isn't actually reachable at that first-import moment, the connection attempt fails immediately and the whole application (or test collection) crashes at startup, rather than degrading gracefully. This mirrors how Postgres/Redis behave if misconfigured too — not unique to Qdrant — but worth knowing before setting this in an environment where Qdrant's availability isn't guaranteed.
+
+### Vector index type: HNSW or flat
+
+Set via `config.INDEX_TYPE`: `"hnsw"` (default, approximate) or `"flat"` (exact brute-force). HNSW tuning knobs (only used when `INDEX_TYPE == "hnsw"`): `HNSW_M` (graph connectivity), `HNSW_EF_CONSTRUCTION` (build-time search depth), `HNSW_EF_SEARCH` (query-time search depth).
+
+**A real, permanent trade-off worth understanding, not a bug**: FAISS's HNSW does not support true removal (verified directly — calling `remove_ids()` on it raises `RuntimeError`). `VectorIndex.remove()` falls back to deleting the entry from our own chunk_id mapping only — the vector becomes permanently unreachable through `search()`, but physically remains in the graph forever. This is the same pattern real vector databases use (Qdrant tombstones within sealed HNSW segments; Milvus marks vectors invalid until compaction) — not something unique or wrong about this implementation. The cost: tombstoned vectors accumulate over time, wasting memory and slightly slowing graph traversal, with no way to reclaim that space short of a full rebuild (see Planned enhancements).
+
+**A real bug that WAS found and fixed here (worth knowing the shape of, in case it resurfaces elsewhere)**: `faiss.IndexHNSWFlat`'s constructor defaults to L2 distance if no metric is specified — unlike `IndexFlatIP`, which is inner product by construction. This silently broke `rag/dedup/semantic.py`'s duplicate check (`score >= SEMANTIC_DUP_COSINE_THRESHOLD`): with L2 distance, a *large* value means genuinely dissimilar vectors, but the threshold check assumed larger meant *more* similar — so unrelated documents could get misread as semantic duplicates of whatever was ingested first, silently excluding them from the vector index entirely. Confirmed directly (HNSW returned ~0.18-scale scores against Flat's ~0.90-scale for the identical query/vectors) before fixing by passing `faiss.METRIC_INNER_PRODUCT` explicitly to the `IndexHNSWFlat` constructor.
+
 ### Vector index persistence
 
 Without persistence, every server restart re-runs the embedding model over every indexable chunk in the entire corpus before it can serve a single request — fine at toy scale, a severe problem at millions of chunks (a restart could take hours). `rag/storage/indexing.py`'s `VectorIndex.save()`/`load_from_disk()` persist the FAISS index and its chunk_id mapping to `config.FAISS_INDEX_PATH` (`data/faiss_index.faiss` + `data/faiss_index.meta.json` by default). `server.py`'s `lifespan` tries loading this on startup, only falling back to a full rebuild-from-database if nothing was persisted yet (first run, or the files were deleted) — and the pipeline saves again after every ingestion that actually changes the index, so a later restart never re-embeds anything from before.
@@ -186,7 +252,9 @@ Watch the startup output — `init_db()` runs `CREATE TABLE IF NOT EXISTS` again
 | Pipeline orchestration | `rag/ingestion/pipeline.py` | `ingest_document()` |
 | Versioning and soft-delete | `rag/storage/db.py`, `rag/ingestion/pipeline.py` | `mark_document_stale()` |
 | Vector removal | `rag/storage/indexing.py` | `VectorIndex.remove()` |
-| Vector search (exact, brute-force) | `rag/storage/indexing.py` | `build_base_index()` |
+| Vector search (HNSW default, or exact flat) | `rag/storage/indexing.py` | `build_base_index()` |
+| HNSW tombstone-based soft-delete | `rag/storage/indexing.py` | `VectorIndex.remove()`, `search()` (over-fetch + filter) |
+| Configurable vector backend (FAISS in-process or Qdrant service) | `rag/storage/indexing.py`, `rag/storage/qdrant_index.py` | `_build_vector_index()`, `QdrantVectorIndex` |
 | Vector index persistence (avoids re-embedding on restart) | `rag/storage/indexing.py`, `server.py` | `VectorIndex.save()`, `load_from_disk()`, `lifespan()` |
 
 ## Continuous integration
@@ -208,6 +276,7 @@ The test suite mirrors the module structure:
 | `test_storage_db.py`, `test_storage_indexing.py` | Document store and vector index, including versioning and vector removal |
 | `test_postgres_integration.py` | The one file that runs against a REAL Postgres instance rather than the forced-SQLite default (see below) |
 | `test_redis_integration.py` | The one file that runs against a REAL Redis instance rather than the forced-in-memory default (see below) |
+| `test_qdrant_integration.py` | The one file that runs against a REAL Qdrant instance rather than the forced-FAISS default (see below) |
 | `test_docling_integration.py` | Runs real Docling extraction if installed (skips otherwise) -- pure function, no cleanup needed |
 | `test_ingestion_pipeline.py` | End-to-end pipeline behavior (dedup, versioning) |
 | `test_retrieval.py` | Retrieval mechanics |
@@ -229,6 +298,13 @@ docker compose up -d
 pytest tests/test_redis_integration.py -v
 ```
 
+**Testing the Qdrant backend specifically**: `test_qdrant_integration.py` follows the same pattern — uses a dedicated test collection (`rag_chunks_test`, deleted before and after each test), and skips cleanly if Qdrant isn't reachable.
+
+```bash
+docker compose up -d
+pytest tests/test_qdrant_integration.py -v
+```
+
 **Testing Docling extraction specifically**: `test_docling_integration.py` skips if `docling` isn't installed, but it's included in `requirements.txt` by default, so it should just run:
 
 ```bash
@@ -245,19 +321,24 @@ python manual_test_docling.py /path/to/your/document.pdf
 
 Deliberately deferred work, kept here so intent isn't lost between sessions:
 
-- **Run Docling as a separate service, not in-process.** Currently, `PDF_EXTRACTION_METHOD=docling` imports `docling` directly into the API server process -- meaning its ML models (layout detection, table structure, OCR) load into and run inside the same process handling HTTP requests, unlike Postgres/Redis/an LLM call, all of which are network calls to an already-running separate process. At scale this is a real problem: memory footprint on every API replica, request-handling workers blocked for the duration of each conversion (seconds to tens of seconds), and a resource-profile mismatch between the lightweight API layer and CPU/GPU-heavy document processing. **`docling-serve`** (the Docling project's own officially maintained sibling project — a FastAPI microservice, distributed as ready-made container images, with async job endpoints and a Redis-backed job queue for real scale) is the natural fix, run the same way Postgres/Redis already are in `docker-compose.yml`, with `extractors.py` making an HTTP call to it instead of importing `docling` directly. Not a small change (synchronous in-process call → async HTTP call with timeout/failure handling and job polling for larger documents), but well-supported by existing official tooling rather than something to build from scratch.
-
-
-- **PySpark-based batch near-duplicate detection.** `rag/dedup/near.py` now supports "memory" and "redis" backends (both suited to real-time, per-upload checking). A Spark-based batch job (`pyspark.ml.feature.MinHashLSH`) is a different tier of solution, suited to periodic full-corpus re-scans across millions of documents rather than live request-time checks -- likely to coexist with, not replace, the real-time backends above.
-- **File storage.** Raw uploaded files are currently processed and discarded, never persisted. Production systems store the original file in object storage (S3 or equivalent) and keep a reference (not the bytes) in the database — enabling source-document display, re-processing without re-upload, compliance retention, and debugging bad extractions. Planned as a `FileStorage` interface mirroring the `DB_BACKEND` pattern: a `LocalDiskBackend` (writing to `data/uploads/`, simulating object storage for local dev) and an `S3Backend` selected via config.
-- **A real UI.** Currently Swagger/curl only; a minimal frontend (upload, chat, source display with links back to original documents) would depend on file storage being in place first.
-- **Chat session management and context compaction.** No conversation/session concept currently exists — each `/chat` call is stateless. A real system needs session storage, multi-turn context, and a strategy for summarizing or truncating conversation history once it grows too long for the context window.
-- **Multi-vendor generation support.** `rag/generation.py` calls Anthropic's API directly; a production system would abstract this behind a common interface so the underlying model/vendor is swappable via config, similar in spirit to the storage backend abstraction.
-- **Secrets management.** `config.py`'s Postgres password currently falls back to a hardcoded dev default if no environment variable is set — adequate for local development, not for any shared or production environment. Planned: remove the fallback default entirely, and/or integrate a real secrets manager.
+| Item | Why it matters | Notes |
+|---|---|---|
+| Periodic full HNSW rebuild | Tombstoned vectors accumulate in the graph forever (HNSW can't truly remove them), wasting memory and slightly slowing traversal over time — the same reason Qdrant/Milvus run background compaction | Rebuild by re-adding only the live vectors into a fresh index; could run on a schedule or be triggered once tombstone count crosses a threshold |
+| Batch vector index writes during bulk ingestion | `/seed` calls `ingest_document()` individually per passage, saving the index to disk once per document (up to 500 separate disk writes for a 500-passage seed run) — real, avoidable overhead at bulk-load scale | Defer the save until the whole bulk operation finishes, or build the index once at the end rather than incrementally during load (the same "load first, index after" pattern databases use for bulk imports) |
+| Hybrid retrieval (dense + BM25) | Pure embedding search misses exact keyword/ID/code matches | Combine with reciprocal rank fusion or similar |
+| Reranking | Cheap ANN retrieval casts a wide net; a cross-encoder reranker picks the best few from it | Two-stage "cheap then precise" pattern |
+| Query rewriting | Raw user queries are often short/ambiguous; rewriting before retrieval improves match quality | — |
+| Run Docling as a separate service, not in-process | `PDF_EXTRACTION_METHOD=docling` loads its ML models directly into the API server process — memory footprint on every replica, workers blocked for the duration of each conversion (seconds to tens of seconds) | `docling-serve` (Docling's own officially maintained microservice, ready-made container images, async job queue) is the natural fix — not a small change (sync in-process call → async HTTP call with timeout/job-polling handling), but well-supported by existing official tooling |
+| PySpark-based batch near-duplicate detection | `rag/dedup/near.py`'s "memory"/"redis" backends suit real-time, per-upload checking; a different tier of solution is needed for periodic full-corpus re-scans across millions of documents | Likely coexists with, rather than replaces, the real-time backends |
+| File storage | Raw uploaded files are processed and discarded, never persisted — no source-document display, no re-processing without re-upload, no compliance retention, no debugging bad extractions | Planned as a `FileStorage` interface mirroring `DB_BACKEND`: `LocalDiskBackend` (`data/uploads/`) and `S3Backend`, selected via config |
+| A real UI | Currently Swagger/curl only | Depends on file storage being in place first (for source-document display) |
+| Chat session management + context compaction | No conversation/session concept exists — each `/chat` call is stateless | Needs session storage, multi-turn context, and a truncation/summarization strategy once history grows too long |
+| Multi-vendor generation support | `rag/generation.py` calls Anthropic's API directly | Abstract behind a common interface, swappable via config — same spirit as the storage backend abstraction |
+| Secrets management | `config.py`'s Postgres password falls back to a hardcoded dev default if no env var is set — fine locally, not for any shared/production environment | Remove the fallback default and/or integrate a real secrets manager |
 
 ## Known limitations
 
-- Vector search uses exact brute-force search (`IndexFlatIP`); an approximate index (HNSW/IVF) is a planned addition, isolated to `rag/storage/indexing.py`. The index itself is now persisted to disk (`config.FAISS_INDEX_PATH`) and loaded on startup rather than re-embedded from scratch every restart — see Configuration below.
+- Vector search defaults to `"hnsw"` (approximate, `config.INDEX_TYPE`); `"flat"` (exact brute-force) is still available. HNSW cannot truly remove a vector (verified directly against FAISS — `remove_ids()` raises `RuntimeError` for this index type), so soft-deleted vectors are tombstoned (permanently unreachable through search, but still physically occupying space in the graph) rather than genuinely erased — the same pattern real vector databases (Qdrant, Milvus) use, requiring periodic background compaction/rebuild to reclaim that space. Not yet implemented here — see Planned enhancements. The index is persisted to disk (`config.FAISS_INDEX_PATH`) and loaded on startup rather than re-embedded from scratch every restart — see Configuration below.
 - Retrieval is dense-only; no hybrid (BM25) retrieval, reranking, or query rewriting yet.
 - Table detection works on already-Markdown-formatted tables. PDF/image extraction now supports Docling (`config.PDF_EXTRACTION_METHOD = "docling"`), which outputs tables as real Markdown — picked up automatically by the existing table detection — but this path was implemented against Docling's documented API and has **not been run end-to-end** (it's too large a dependency to install in the environment this was developed in). Verify it directly before relying on it. The default `"pymupdf"` method remains raw-text-only, with no table structure and no image support at all.
 - Document versioning uses filename as the identity key; a production system would use a stable external identifier.

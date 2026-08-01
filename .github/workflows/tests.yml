@@ -8,16 +8,16 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
-    # Real Postgres and Redis, matching config.py's default connection
-    # settings exactly (host/port/db/user/password) -- GitHub Actions
-    # service containers are reachable via localhost from the job itself
-    # (the ports: mapping below is what makes that true), so no extra
-    # env vars need to be set for our tests to find them.
+    # Real Postgres, Redis, and Qdrant, matching config.py's default
+    # connection settings exactly (host/port/db/user/password) -- GitHub
+    # Actions service containers are reachable via localhost from the job
+    # itself (the ports: mapping below is what makes that true), so no
+    # extra env vars need to be set for our tests to find them.
     #
-    # This is what makes test_postgres_integration.py and
-    # test_redis_integration.py actually RUN in CI (not just skip) --
-    # without these services, they'd skip cleanly, same as running
-    # locally without `docker compose up -d`.
+    # This is what makes test_postgres_integration.py,
+    # test_redis_integration.py, and test_qdrant_integration.py actually
+    # RUN in CI (not just skip) -- without these services, they'd skip
+    # cleanly, same as running locally without `docker compose up -d`.
     services:
       postgres:
         image: postgres:16
@@ -43,6 +43,11 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
+      qdrant:
+        image: qdrant/qdrant:latest
+        ports:
+          - 6333:6333
+
     steps:
       - uses: actions/checkout@v4
 
@@ -52,6 +57,16 @@ jobs:
 
       - name: Install dependencies
         run: pip install -r requirements.txt
+
+      - name: Wait for Qdrant to be ready
+        # Qdrant's image doesn't expose a simple in-container health-check
+        # command the way postgres/redis do above, so poll its /healthz
+        # endpoint from the runner itself instead.
+        run: |
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:6333/healthz && break
+            sleep 2
+          done
 
       - name: Run tests
         # Same FAISS + torch OpenMP workaround server.py and

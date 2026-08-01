@@ -1,11 +1,13 @@
-# Local Postgres and Redis for development/testing.
+# Local Postgres, Redis, and Qdrant for development/testing.
 # Postgres: config.DB_BACKEND=postgres. Redis: config.NEAR_DUP_BACKEND=redis.
-# Neither is used for the default (SQLite + in-memory MinHash) configuration.
+# Qdrant: config.VECTOR_BACKEND=qdrant. None of these are used for the
+# default (SQLite + in-memory MinHash + FAISS HNSW) configuration.
 #
 # Start:  docker compose up -d
-# Stop:   docker compose down        (both bind-mounted data dirs survive --
-#                                      see data/postgres_data and data/redis_data)
-# Wipe:   rm -rf data/postgres_data data/redis_data
+# Stop:   docker compose down        (all bind-mounted data dirs survive --
+#                                      see data/postgres_data, data/redis_data,
+#                                      data/qdrant_data)
+# Wipe:   rm -rf data/postgres_data data/redis_data data/qdrant_data
 
 services:
   postgres:
@@ -35,3 +37,12 @@ services:
     command: redis-server --save 60 1 --appendonly yes
     volumes:
       - ./data/redis_data:/data
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: rag-qdrant
+    ports:
+      - "6333:6333"   # REST API
+      - "6334:6334"   # gRPC API
+    volumes:
+      - ./data/qdrant_data:/qdrant/storage

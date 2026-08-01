@@ -9,13 +9,9 @@ Run:
 Then open http://127.0.0.1:8000/docs for the interactive Swagger UI.
 """
 
-# MUST run before faiss or torch/sentence-transformers get imported anywhere
-# (directly or transitively below) -- both bundle their own OpenMP runtime,
-# and loading both in one process can otherwise segfault inside FAISS's
-# search(). See README for the full explanation.
-import os
-os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
-os.environ.setdefault("OMP_NUM_THREADS", "1")
+# The FAISS + torch OpenMP workaround (KMP_DUPLICATE_LIB_OK/OMP_NUM_THREADS)
+# is now centralized in config.py, imported first below -- see its comment
+# for why it lives there rather than being repeated in every entry point.
 
 from typing import Optional
 from contextlib import asynccontextmanager
