@@ -7,6 +7,7 @@ file needs to know or care which one is active.
 NOTE: schema changed again -- delete rag.db before running.
 """
 
+import re
 from datetime import datetime, timezone
 from rag.storage.connection import get_connection, Connection
 
@@ -50,6 +51,27 @@ def init_db():
     CREATE INDEX IF NOT EXISTS idx_documents_source_uri ON documents(source_uri);
     CREATE INDEX IF NOT EXISTS idx_documents_doc_hash ON documents(doc_hash);
     """)
+    conn.commit()
+    conn.close()
+
+    # Keyword-search (BM25/full-text) schema -- genuinely backend-specific,
+    # one of the real dialect differences rag/storage/connection.py's
+    # abstraction admits it doesn't cover (see README). SQLite needs a
+    # separate FTS5 virtual table; Postgres gets a GENERATED tsvector
+    # column directly on `chunks`, auto-kept-in-sync by Postgres itself on
+    # every insert -- no manual sync code needed for that backend.
+    from config import DB_BACKEND
+    conn = get_db()
+    if DB_BACKEND == "postgres":
+        conn.executescript("""
+        ALTER TABLE chunks ADD COLUMN IF NOT EXISTS content_tsv tsvector
+            GENERATED ALWAYS AS (to_tsvector('english', content)) STORED;
+        CREATE INDEX IF NOT EXISTS idx_chunks_content_tsv ON chunks USING GIN(content_tsv);
+        """)
+    else:
+        conn.executescript("""
+        CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(chunk_id UNINDEXED, content);
+        """)
     conn.commit()
     conn.close()
 
@@ -160,6 +182,19 @@ def insert_small_chunk(chunk_id: str, doc_id: str, parent_chunk_id: str, positio
     conn.commit()
     conn.close()
 
+    # Keep SQLite's FTS5 keyword-search table in sync -- only for genuinely
+    # NEW chunks (duplicates should never be independently searchable,
+    # mirroring how they're excluded from the vector index too). Postgres
+    # needs no equivalent call here: its tsvector column is GENERATED
+    # ALWAYS AS ..., computed automatically from `content` by Postgres
+    # itself on every insert.
+    from config import DB_BACKEND
+    if DB_BACKEND != "postgres" and duplicate_of_chunk_id is None:
+        conn = get_db()
+        conn.execute("INSERT INTO chunks_fts (chunk_id, content) VALUES (?, ?)", (chunk_id, content))
+        conn.commit()
+        conn.close()
+
 
 def get_chunk_by_content_hash(content_hash: str):
     conn = get_db()
@@ -216,3 +251,43 @@ def get_chunks_with_parent_by_ids(chunk_ids: list[str]):
         row["chunk_id"]: {"content": row["parent_content"] or row["small_content"], "source": row["filename"]}
         for row in rows
     }
+
+
+def keyword_search(query_text: str, top_k: int) -> list[tuple[str, float]]:
+    """Sparse/lexical search -- BM25 via SQLite FTS5, or ts_rank via
+    Postgres's tsvector/GIN index. Only returns non-stale, non-duplicate
+    SMALL chunks -- the same notion of "currently searchable" that
+    get_all_indexable_chunks() uses for the vector index, so dense and
+    sparse search agree on what's valid to return.
+    """
+    from config import DB_BACKEND
+    conn = get_db()
+
+    if DB_BACKEND == "postgres":
+        rows = conn.execute(
+            """SELECT c.chunk_id, ts_rank(c.content_tsv, plainto_tsquery('english', ?)) AS score
+               FROM chunks c
+               WHERE c.content_tsv @@ plainto_tsquery('english', ?)
+                 AND c.chunk_type = 'small' AND c.is_stale = 0 AND c.duplicate_of_chunk_id IS NULL
+               ORDER BY score DESC LIMIT ?""",
+            (query_text, query_text, top_k),
+        ).fetchall()
+    else:
+        # Sanitize query text for SQLite FTS5 to prevent special character syntax crashes
+        sanitized_query = f'"{query_text.replace("\"", "\"\"")}"' if query_text.strip() else ""
+
+        # Using FTS5 table-valued function syntax fixes the JOIN column lookup bug
+        rows = conn.execute(
+            """SELECT f.chunk_id, bm25(chunks_fts) AS score
+               FROM chunks_fts(? ) AS f
+               JOIN chunks c ON f.chunk_id = c.chunk_id
+               WHERE c.chunk_type = 'small' 
+                 AND c.is_stale = 0 
+                 AND c.duplicate_of_chunk_id IS NULL
+               ORDER BY score
+               LIMIT ?""",
+            (sanitized_query, top_k),
+        ).fetchall()
+
+    conn.close()
+    return [(row["chunk_id"], float(row["score"])) for row in rows]

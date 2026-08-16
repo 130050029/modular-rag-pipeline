@@ -162,6 +162,22 @@ HNSW_EF_SEARCH = 64          # search depth while QUERYING (higher = better reca
 TOP_K = 4
 
 # ---------------------------------------------------------------------------
+# Hybrid search (dense + sparse/BM25, fused via Reciprocal Rank Fusion)
+# ---------------------------------------------------------------------------
+# Enabled by default -- BM25 overhead is genuinely small (an indexed lookup
+# plus arithmetic, no model inference) relative to the embedding call the
+# dense side already pays for, so there's little reason to disable it.
+HYBRID_SEARCH_ENABLED = os.environ.get("HYBRID_SEARCH_ENABLED", "true").lower() == "true"
+
+RRF_K = 60   # standard Reciprocal Rank Fusion smoothing constant
+
+# How many candidates EACH side contributes before fusion -- larger than
+# the final TOP_K, since fusion needs enough overlap between the two lists
+# to be meaningful.
+DENSE_CANDIDATE_K = 20
+SPARSE_CANDIDATE_K = 20
+
+# ---------------------------------------------------------------------------
 # Generation
 # ---------------------------------------------------------------------------
 ANTHROPIC_MODEL = "claude-sonnet-4-5-20250929"
