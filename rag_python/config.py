@@ -30,7 +30,7 @@ os.environ.setdefault("OMP_NUM_THREADS", "1")
 DB_BACKEND = os.environ.get("DB_BACKEND", "sqlite")
 
 # Used only when DB_BACKEND == "sqlite".
-DB_PATH = "data/rag.db"
+DB_PATH = "../data/rag.db"
 
 # Persisted vector index location -- produces <FAISS_INDEX_PATH>.faiss and
 # <FAISS_INDEX_PATH>.meta.json. Without this, every server restart re-runs
@@ -162,12 +162,19 @@ HNSW_EF_SEARCH = 64          # search depth while QUERYING (higher = better reca
 TOP_K = 4
 
 # ---------------------------------------------------------------------------
-# Hybrid search (dense + sparse/BM25, fused via Reciprocal Rank Fusion)
+# Retrieval strategy
 # ---------------------------------------------------------------------------
-# Enabled by default -- BM25 overhead is genuinely small (an indexed lookup
-# plus arithmetic, no model inference) relative to the embedding call the
-# dense side already pays for, so there's little reason to disable it.
-HYBRID_SEARCH_ENABLED = os.environ.get("HYBRID_SEARCH_ENABLED", "true").lower() == "true"
+# "dense"  = embedding/vector search only
+# "sparse" = BM25/keyword search only
+# "hybrid" = dense + sparse, fused via Reciprocal Rank Fusion
+SEARCH_MODE = os.environ.get("SEARCH_MODE", "hybrid").lower()
+
+VALID_SEARCH_MODES = {"dense", "sparse", "hybrid"}
+if SEARCH_MODE not in VALID_SEARCH_MODES:
+    raise ValueError(
+        f"Unsupported SEARCH_MODE={SEARCH_MODE!r}. "
+        f"Expected one of: {sorted(VALID_SEARCH_MODES)}"
+    )
 
 RRF_K = 60   # standard Reciprocal Rank Fusion smoothing constant
 
@@ -177,11 +184,34 @@ RRF_K = 60   # standard Reciprocal Rank Fusion smoothing constant
 DENSE_CANDIDATE_K = 20
 SPARSE_CANDIDATE_K = 20
 
+# Optional second-stage reranking.
+# The retriever first finds candidates; the cross-encoder then reranks them.
+RERANK_ENABLED = os.environ.get("RERANK_ENABLED", "false").lower() == "true"
+RERANKER_MODEL = os.environ.get(
+    "RERANKER_MODEL",
+    "cross-encoder/ms-marco-MiniLM-L-6-v2",
+)
+RERANK_CANDIDATE_K = int(os.environ.get("RERANK_CANDIDATE_K", "20"))
+
 # ---------------------------------------------------------------------------
 # Generation
 # ---------------------------------------------------------------------------
+# "ollama" = local model, no API key required
+# "anthropic" = hosted Claude API
+LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "ollama")
+
+LLM_MAX_TOKENS = int(os.environ.get("LLM_MAX_TOKENS", "500"))
+LLM_TIMEOUT = int(os.environ.get("LLM_TIMEOUT", "120"))
+
+OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:0.5b")
+
 ANTHROPIC_MODEL = "claude-sonnet-4-5-20250929"
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
+
+CONTEXT_MAX_CHARS = int(
+    os.environ.get("CONTEXT_MAX_CHARS", "12000")
+)
 
 # ---------------------------------------------------------------------------
 # Server

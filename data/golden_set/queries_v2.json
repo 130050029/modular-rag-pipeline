@@ -1,0 +1,452 @@
+[
+  {
+    "id": "qv2_001",
+    "query": "Roughly what share of all known species on Earth are found in the Amazon rainforest?",
+    "answerable": true,
+    "difficulty": "easy",
+    "tags": ["direct_lexical", "paraphrase", "single_evidence"],
+    "expected_sources": ["sample_prose.txt"],
+    "evidence": [
+      {
+        "id": "E1",
+        "source": "sample_prose.txt",
+        "text": "It is home to an estimated ten percent of all known species on Earth, including thousands of tree species, mammals, birds, and insects found nowhere else."
+      }
+    ],
+    "reference_answer": "The Amazon rainforest is home to an estimated ten percent of all known species on Earth."
+  },
+  {
+    "id": "qv2_002",
+    "query": "What role does the Amazon rainforest play in regulating the global climate?",
+    "answerable": true,
+    "difficulty": "medium",
+    "tags": ["paraphrase", "single_evidence"],
+    "expected_sources": ["sample_prose.txt"],
+    "evidence": [
+      {
+        "id": "E1",
+        "source": "sample_prose.txt",
+        "text": "The forest plays a critical role in regulating the global climate by absorbing large amounts of carbon dioxide from the atmosphere."
+      }
+    ],
+    "reference_answer": "It helps regulate the global climate by absorbing large amounts of carbon dioxide from the atmosphere."
+  },
+  {
+    "id": "qv2_003",
+    "query": "Which human activities are identified as drivers of Amazon deforestation?",
+    "answerable": true,
+    "difficulty": "easy",
+    "tags": ["direct_lexical", "list_question"],
+    "expected_sources": ["sample_prose.txt"],
+    "evidence": [
+      {
+        "id": "E1",
+        "source": "sample_prose.txt",
+        "text": "Deforestation driven by agriculture, logging, and mining has reduced the forest's size significantly over the past fifty years, raising concerns among scientists about long-term ecological stability and the loss of biodiversity."
+      }
+    ],
+    "reference_answer": "Agriculture, logging, and mining."
+  },
+  {
+    "id": "qv2_004",
+    "query": "How many countries does the Amazon rainforest span?",
+    "answerable": true,
+    "difficulty": "easy",
+    "tags": ["numeric", "direct_lexical"],
+    "expected_sources": ["sample_prose.txt"],
+    "evidence": [
+      {
+        "id": "E1",
+        "source": "sample_prose.txt",
+        "text": "The Amazon rainforest spans nine countries in South America and covers over five million square kilometers."
+      }
+    ],
+    "reference_answer": "Nine countries."
+  },
+  {
+    "id": "qv2_005",
+    "query": "What is the normal efficiency range stated for modern solar panels?",
+    "answerable": true,
+    "difficulty": "easy",
+    "tags": ["numeric", "direct_lexical"],
+    "expected_sources": ["sample_markdown.md"],
+    "evidence": [
+      {
+        "id": "E1",
+        "source": "sample_markdown.md",
+        "text": "Modern solar panels convert roughly twenty to twenty-two percent of incoming sunlight into usable electricity, though laboratory prototypes have exceeded forty percent under controlled conditions."
+      }
+    ],
+    "reference_answer": "Roughly 20% to 22%."
+  },
+  {
+    "id": "qv2_006",
+    "query": "What factors can cause a solar panel to become less efficient?",
+    "answerable": true,
+    "difficulty": "medium",
+    "tags": ["list_question", "paraphrase", "multi_factor"],
+    "expected_sources": ["sample_markdown.md"],
+    "evidence": [
+      {
+        "id": "E1",
+        "source": "sample_markdown.md",
+        "text": "- Panel temperature: efficiency drops as panels heat up in direct sun\n- Angle of installation relative to the sun's path\n- Dust, shading, and general panel cleanliness\n- Age of the panel, since output degrades roughly half a percent per year"
+      }
+    ],
+    "reference_answer": "Heat, installation angle, dust/shading/cleanliness, and panel age can reduce efficiency."
+  },
+  {
+    "id": "qv2_007",
+    "query": "What annual degradation rate is stated for solar panel output?",
+    "answerable": true,
+    "difficulty": "easy",
+    "tags": ["numeric", "direct_lexical", "hard_numeric"],
+    "expected_sources": ["sample_markdown.md"],
+    "evidence": [
+      {
+        "id": "E1",
+        "source": "sample_markdown.md",
+        "text": "Age of the panel, since output degrades roughly half a percent per year"
+      }
+    ],
+    "reference_answer": "Roughly 0.5% per year."
+  },
+  {
+    "id": "qv2_008",
+    "query": "After 25 years, what minimum fraction of its original output is typically guaranteed by manufacturers?",
+    "answerable": true,
+    "difficulty": "medium",
+    "tags": ["numeric", "paraphrase", "similar_numeric"],
+    "expected_sources": ["sample_markdown.md"],
+    "evidence": [
+      {
+        "id": "E1",
+        "source": "sample_markdown.md",
+        "text": "Manufacturers typically guarantee at least eighty percent of original output after twenty-five years of use."
+      }
+    ],
+    "reference_answer": "At least 80% of the original output."
+  },
+  {
+    "id": "qv2_009",
+    "query": "What water temperature range is recommended for standard pour-over coffee?",
+    "answerable": true,
+    "difficulty": "easy",
+    "tags": ["numeric", "direct_lexical"],
+    "expected_sources": ["sample_page.html"],
+    "evidence": [
+      {
+        "id": "E1",
+        "source": "sample_page.html",
+        "text": "Most guides recommend water heated to between 195 and 205 degrees Fahrenheit, and a grind consistency similar to coarse sea salt for a standard pour-over cone."
+      }
+    ],
+    "reference_answer": "195–205°F."
+  },
+  {
+    "id": "qv2_010",
+    "query": "Why does pour-over brewing give the brewer more control than automatic drip brewing?",
+    "answerable": true,
+    "difficulty": "medium",
+    "tags": ["paraphrase", "contrast", "single_evidence"],
+    "expected_sources": ["sample_page.html"],
+    "evidence": [
+      {
+        "id": "E1",
+        "source": "sample_page.html",
+        "text": "The technique gives the brewer more control over extraction time and water temperature compared to automatic drip machines."
+      }
+    ],
+    "reference_answer": "It gives the brewer more control over extraction time and water temperature."
+  },
+  {
+    "id": "qv2_011",
+    "query": "What grind texture is recommended for a standard pour-over cone?",
+    "answerable": true,
+    "difficulty": "easy",
+    "tags": ["paraphrase", "direct_lexical"],
+    "expected_sources": ["sample_page.html"],
+    "evidence": [
+      {
+        "id": "E1",
+        "source": "sample_page.html",
+        "text": "Most guides recommend water heated to between 195 and 205 degrees Fahrenheit, and a grind consistency similar to coarse sea salt for a standard pour-over cone."
+      }
+    ],
+    "reference_answer": "A consistency similar to coarse sea salt."
+  },
+  {
+    "id": "qv2_012",
+    "query": "What was the North region's revenue in Q3?",
+    "answerable": true,
+    "difficulty": "medium",
+    "tags": ["table_lookup", "numeric", "hard_numeric"],
+    "expected_sources": ["table_sample.txt"],
+    "evidence": [
+      {
+        "id": "E1",
+        "source": "table_sample.txt",
+        "text": "| North  | 120000    | 135000    | 128000    | 142000    |"
+      }
+    ],
+    "reference_answer": "128000."
+  },
+  {
+    "id": "qv2_013",
+    "query": "Which region recorded the largest Q4 revenue?",
+    "answerable": true,
+    "difficulty": "medium",
+    "tags": ["table_comparison", "numeric", "hard_numeric"],
+    "expected_sources": ["table_sample.txt"],
+    "evidence": [
+      {
+        "id": "E1",
+        "source": "table_sample.txt",
+        "text": "| West   | 143000    | 150000    | 148000    | 160000    |"
+      }
+    ],
+    "reference_answer": "West, with Q4 revenue of 160000."
+  },
+  {
+    "id": "qv2_014",
+    "query": "How much higher was West's Q4 revenue than North's Q4 revenue?",
+    "answerable": true,
+    "difficulty": "hard",
+    "tags": ["table_comparison", "multi_evidence", "calculation"],
+    "expected_sources": ["table_sample.txt"],
+    "evidence": [
+      {
+        "id": "E1",
+        "source": "table_sample.txt",
+        "text": "| West   | 143000    | 150000    | 148000    | 160000    |"
+      },
+      {
+        "id": "E2",
+        "source": "table_sample.txt",
+        "text": "| North  | 120000    | 135000    | 128000    | 142000    |"
+      }
+    ],
+    "reference_answer": "18000 higher."
+  },
+  {
+    "id": "qv2_015",
+    "query": "Which regions are explicitly described as having the strongest growth in the second half of the year?",
+    "answerable": true,
+    "difficulty": "medium",
+    "tags": ["direct_lexical", "list_question", "distractor_table"],
+    "expected_sources": ["table_sample.txt"],
+    "evidence": [
+      {
+        "id": "E1",
+        "source": "table_sample.txt",
+        "text": "Overall growth was strongest in the North and West regions during the second half of the year."
+      }
+    ],
+    "reference_answer": "North and West."
+  },
+  {
+    "id": "qv2_016",
+    "query": "Under the 2024 remote-work policy, how many days per week could an employee work remotely?",
+    "answerable": true,
+    "difficulty": "medium",
+    "tags": ["versioned_document", "numeric", "temporal"],
+    "expected_sources": ["versioning_v1.txt"],
+    "evidence": [
+      {
+        "id": "E1",
+        "source": "versioning_v1.txt",
+        "text": "Company Remote Work Policy (2024 edition): Employees may work remotely up to two days per week, subject to manager approval. Core collaboration hours are 10am to 3pm local time."
+      }
+    ],
+    "reference_answer": "Up to two days per week, subject to manager approval."
+  },
+  {
+    "id": "qv2_017",
+    "query": "Under the 2025 remote-work policy, how many days per week could an employee work remotely?",
+    "answerable": true,
+    "difficulty": "medium",
+    "tags": ["versioned_document", "numeric", "temporal", "hard_negative"],
+    "expected_sources": ["versioning_v2.txt"],
+    "evidence": [
+      {
+        "id": "E1",
+        "source": "versioning_v2.txt",
+        "text": "Company Remote Work Policy (2025 edition): Employees may work remotely up to four days per week, subject to manager approval. Core collaboration hours are 11am to 2pm local time."
+      }
+    ],
+    "reference_answer": "Up to four days per week, subject to manager approval."
+  },
+  {
+    "id": "qv2_018",
+    "query": "How did the allowed number of remote-work days change between 2024 and 2025?",
+    "answerable": true,
+    "difficulty": "hard",
+    "tags": ["versioned_document", "multi_evidence", "temporal", "comparison", "calculation"],
+    "expected_sources": ["versioning_v1.txt", "versioning_v2.txt"],
+    "evidence": [
+      {
+        "id": "E1",
+        "source": "versioning_v1.txt",
+        "text": "Company Remote Work Policy (2024 edition): Employees may work remotely up to two days per week, subject to manager approval. Core collaboration hours are 10am to 3pm local time."
+      },
+      {
+        "id": "E2",
+        "source": "versioning_v2.txt",
+        "text": "Company Remote Work Policy (2025 edition): Employees may work remotely up to four days per week, subject to manager approval. Core collaboration hours are 11am to 2pm local time."
+      }
+    ],
+    "reference_answer": "The allowance increased from two days to four days per week, an increase of two days."
+  },
+  {
+    "id": "qv2_019",
+    "query": "How did the core collaboration hours change from the 2024 policy to the 2025 policy?",
+    "answerable": true,
+    "difficulty": "hard",
+    "tags": ["versioned_document", "multi_evidence", "temporal", "comparison"],
+    "expected_sources": ["versioning_v1.txt", "versioning_v2.txt"],
+    "evidence": [
+      {
+        "id": "E1",
+        "source": "versioning_v1.txt",
+        "text": "Company Remote Work Policy (2024 edition): Employees may work remotely up to two days per week, subject to manager approval. Core collaboration hours are 10am to 3pm local time."
+      },
+      {
+        "id": "E2",
+        "source": "versioning_v2.txt",
+        "text": "Company Remote Work Policy (2025 edition): Employees may work remotely up to four days per week, subject to manager approval. Core collaboration hours are 11am to 2pm local time."
+      }
+    ],
+    "reference_answer": "The core hours shifted from 10am–3pm in 2024 to 11am–2pm in 2025."
+  },
+  {
+    "id": "qv2_020",
+    "query": "What physical energy source do wind turbines convert into electricity?",
+    "answerable": true,
+    "difficulty": "easy",
+    "tags": ["direct_lexical", "single_evidence"],
+    "expected_sources": ["sample_document.pdf"],
+    "evidence": [
+      {
+        "id": "E1",
+        "source": "sample_document.pdf",
+        "text": "Wind turbines convert kinetic energy from moving air into electricity using large rotating blades connected to a generator."
+      }
+    ],
+    "reference_answer": "Kinetic energy from moving air."
+  },
+  {
+    "id": "qv2_021",
+    "query": "Why do offshore wind farms generally produce more power than onshore installations?",
+    "answerable": true,
+    "difficulty": "medium",
+    "tags": ["paraphrase", "contrast", "single_evidence"],
+    "expected_sources": ["sample_document.pdf"],
+    "evidence": [
+      {
+        "id": "E1",
+        "source": "sample_document.pdf",
+        "text": "Offshore wind farms typically generate more power than onshore installations due to stronger and more consistent wind speeds."
+      }
+    ],
+    "reference_answer": "Because offshore locations have stronger and more consistent wind speeds."
+  },
+  {
+    "id": "qv2_022",
+    "query": "What is the Great Barrier Reef's approximate length?",
+    "answerable": true,
+    "difficulty": "easy",
+    "tags": ["numeric", "direct_lexical", "distractor_document"],
+    "expected_sources": ["near_duplicate_a.txt"],
+    "evidence": [
+      {
+        "id": "E1",
+        "source": "near_duplicate_a.txt",
+        "text": "The Great Barrier Reef is the world's largest coral reef system, stretching over two thousand kilometers off the coast of Queensland, Australia."
+      }
+    ],
+    "reference_answer": "Over 2,000 kilometers."
+  },
+  {
+    "id": "qv2_023",
+    "query": "What causes coral bleaching events in the Great Barrier Reef according to the document?",
+    "answerable": true,
+    "difficulty": "medium",
+    "tags": ["paraphrase", "causal", "distractor_document"],
+    "expected_sources": ["near_duplicate_a.txt"],
+    "evidence": [
+      {
+        "id": "E1",
+        "source": "near_duplicate_a.txt",
+        "text": "Rising ocean temperatures have caused repeated coral bleaching events over the past two decades, threatening the long-term survival of the reef ecosystem and the coastal communities that depend on tourism and fishing revenue generated by the reef each year."
+      }
+    ],
+    "reference_answer": "Rising ocean temperatures."
+  },
+  {
+    "id": "qv2_024",
+    "query": "What is the annual degradation rate of the Amazon rainforest?",
+    "answerable": false,
+    "difficulty": "hard",
+    "tags": ["unanswerable", "lexically_plausible", "cross_topic_confusion"],
+    "expected_sources": [],
+    "evidence": [],
+    "reference_answer": null
+  },
+  {
+    "id": "qv2_025",
+    "query": "What water temperature range does the coffee guide recommend if the target is 180 to 190 degrees Fahrenheit?",
+    "answerable": false,
+    "difficulty": "hard",
+    "tags": ["unanswerable", "numeric_conflict", "near_miss"],
+    "expected_sources": [],
+    "evidence": [],
+    "reference_answer": null
+  },
+  {
+    "id": "qv2_026",
+    "query": "How many days per week does the 2025 policy allow employees to work remotely without manager approval?",
+    "answerable": false,
+    "difficulty": "hard",
+    "tags": ["unanswerable", "versioned_document", "missing_condition", "near_miss"],
+    "expected_sources": [],
+    "evidence": [],
+    "reference_answer": null
+  },
+  {
+    "id": "qv2_027",
+    "query": "What was East's Q4 revenue?",
+    "answerable": true,
+    "difficulty": "medium",
+    "tags": ["table_lookup", "numeric", "hard_numeric", "similar_rows"],
+    "expected_sources": ["table_sample.txt"],
+    "evidence": [
+      {
+        "id": "E1",
+        "source": "table_sample.txt",
+        "text": "| East   | 87000     | 92000     | 95000     | 99000     |"
+      }
+    ],
+    "reference_answer": "99000."
+  },
+  {
+    "id": "qv2_028",
+    "query": "Which is larger: North's Q4 revenue or West's Q4 revenue, and by how much?",
+    "answerable": true,
+    "difficulty": "hard",
+    "tags": ["table_comparison", "multi_evidence", "calculation", "similar_rows"],
+    "expected_sources": ["table_sample.txt"],
+    "evidence": [
+      {
+        "id": "E1",
+        "source": "table_sample.txt",
+        "text": "| North  | 120000    | 135000    | 128000    | 142000    |"
+      },
+      {
+        "id": "E2",
+        "source": "table_sample.txt",
+        "text": "| West   | 143000    | 150000    | 148000    | 160000    |"
+      }
+    ],
+    "reference_answer": "West is larger by 18000."
+  }
+]

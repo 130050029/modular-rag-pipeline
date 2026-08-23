@@ -19,10 +19,13 @@ Two important patterns worth understanding, not just copying:
 import sys
 from pathlib import Path
 
-# Ensure the project root (parent of tests/) is importable regardless of
-# where pytest is invoked from -- MUST happen before `import config` below,
-# since config.py lives at the project root, not inside tests/.
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+ROOT = Path(__file__).resolve().parents[2]
+PYTHON_ROOT = ROOT / "rag_python"
+sys.path.insert(0, str(PYTHON_ROOT))
+
+import config  # noqa: F401
+import numpy as np
+import pytest
 
 # Importing config here (before anything that might pull in faiss/torch)
 # is what applies its centralized KMP_DUPLICATE_LIB_OK/OMP_NUM_THREADS fix --
@@ -30,10 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 # happens to import rag.embeddings first will pull in torch; if that
 # happens before this import runs, FAISS's search() can segfault. See
 # config.py's own comment for the full explanation.
-import config  # noqa: F401  (imported for its module-level side effect)
-
-import numpy as np
-import pytest
+# import config as config  # noqa: F401  (imported for its module-level side effect)
 
 
 @pytest.fixture(autouse=True)
@@ -75,7 +75,7 @@ def fresh_vector_index(monkeypatch):
     monkeypatch.setattr("rag.storage.indexing.vector_index", fresh)
     monkeypatch.setattr("rag.dedup.semantic.vector_index", fresh)
     monkeypatch.setattr("rag.ingestion.pipeline.vector_index", fresh)
-    monkeypatch.setattr("rag.retrieval.vector_index", fresh)
+    monkeypatch.setattr("rag.retrieval.retrieval.vector_index", fresh)
     yield fresh
 
 
@@ -119,5 +119,5 @@ def fake_embeddings(monkeypatch):
     monkeypatch.setattr("rag.embeddings.embed_query", _embed_query)
     # Patch where used, per the note above:
     monkeypatch.setattr("rag.ingestion.pipeline.embed_texts", _embed)
-    monkeypatch.setattr("rag.retrieval.embed_query", _embed_query)
+    monkeypatch.setattr("rag.retrieval.retrieval.embed_query", _embed_query)
     yield _embed

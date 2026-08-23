@@ -13,11 +13,10 @@ Then open http://127.0.0.1:8000/docs for the interactive Swagger UI.
 # is now centralized in config.py, imported first below -- see its comment
 # for why it lives there rather than being repeated in every entry point.
 
-from typing import Optional
+
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, UploadFile, File
-from pydantic import BaseModel
 
 from config import HOST, PORT
 from rag.storage.db import init_db, get_all_indexable_chunks, get_all_document_texts_for_near_dedup
@@ -26,9 +25,10 @@ from rag.storage.indexing import vector_index
 from rag.dedup.near import register_document
 from rag.ingestion.pipeline import ingest_document
 from rag.ingestion.extractors import extract_text
-from rag.retrieval import retrieve
-from rag.generation import generate_answer
+from rag.retrieval.retrieval import retrieve
+from rag.generation.generation import generate_answer
 
+from schemas import SeedResponse, UploadResponse, ChatRequest, ChatResponse
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -84,36 +84,7 @@ app = FastAPI(
 )
 
 
-# ---------------------------------------------------------------------------
-# Request/response schemas
-# ---------------------------------------------------------------------------
-class UploadResponse(BaseModel):
-    status: str
-    doc_id: str
-    version: Optional[int] = None
-    chunks: Optional[int] = None
-    duplicate_chunks_skipped: Optional[int] = None
-    near_dup_of: Optional[str] = None
 
-
-class ChatRequest(BaseModel):
-    query: str
-
-
-class SourceInfo(BaseModel):
-    source: str
-    score: float
-
-
-class ChatResponse(BaseModel):
-    answer: str
-    sources: list[SourceInfo]
-
-
-class SeedResponse(BaseModel):
-    status: str
-    passages_seen: int
-    breakdown: dict[str, int]
 
 
 # ---------------------------------------------------------------------------
@@ -155,7 +126,7 @@ def chat(req: ChatRequest):
     answer = generate_answer(req.query, retrieved)
     return {
         "answer": answer,
-        "sources": [{"source": c["source"], "score": c["score"]} for c in retrieved],
+        "sources": [{"source": c["source"]} for c in retrieved],
     }
 
 

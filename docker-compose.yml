@@ -46,3 +46,11 @@ services:
       - "6334:6334"   # gRPC API
     volumes:
       - ./data/qdrant_data:/qdrant/storage
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: rag-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ./data/ollama_data:/root/.ollama

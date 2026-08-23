@@ -8,7 +8,7 @@ semantically relevant chunk among several -- that needs the real model
 """
 
 from rag.ingestion.pipeline import ingest_document
-from rag.retrieval import retrieve
+from rag.retrieval.retrieval import retrieve
 
 
 def test_retrieve_returns_parent_content(fake_embeddings):

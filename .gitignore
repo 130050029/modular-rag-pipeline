@@ -5,9 +5,11 @@ data/*.db
 data/*.db-journal
 data/postgres_data/
 data/redis_data/
+data/ollama_data/
 data/qdrant_data/
 data/faiss_index.faiss
 data/faiss_index.meta.json
+
 
 # Python
 __pycache__/

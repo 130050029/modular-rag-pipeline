@@ -9,7 +9,7 @@ entirely and is a common mistake.
 import pytest
 from fastapi.testclient import TestClient
 
-import server
+import server as server
 
 
 @pytest.fixture

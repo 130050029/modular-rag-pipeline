@@ -1,0 +1,396 @@
+[
+  {
+    "id": "q_001",
+    "query": "What percentage of known species on Earth are estimated to live in the Amazon rainforest?",
+    "answerable": true,
+    "reference_answer": "The Amazon rainforest is home to an estimated ten percent of all known species on Earth.",
+    "evidence": [
+      {
+        "id": "e1",
+        "source": "sample_prose.txt",
+        "text": "It is home to an estimated ten percent of all known species on Earth."
+      }
+    ],
+    "difficulty": "easy",
+    "tags": [
+      "direct_lexical",
+      "factoid",
+      "numeric"
+    ]
+  },
+  {
+    "id": "q_002",
+    "query": "Why is the Amazon rainforest important for global climate regulation?",
+    "answerable": true,
+    "reference_answer": "The Amazon plays an important role in regulating the global climate because it absorbs large amounts of carbon dioxide from the atmosphere.",
+    "evidence": [
+      {
+        "id": "e1",
+        "source": "sample_prose.txt",
+        "text": "The forest plays a critical role in regulating the global climate by absorbing large amounts of carbon dioxide from the atmosphere."
+      }
+    ],
+    "difficulty": "easy",
+    "tags": [
+      "semantic_paraphrase",
+      "why_question"
+    ]
+  },
+  {
+    "id": "q_003",
+    "query": "Which activities have contributed to the reduction in the size of the Amazon rainforest?",
+    "answerable": true,
+    "reference_answer": "Agriculture, logging, and mining have contributed to the reduction in the forest's size.",
+    "evidence": [
+      {
+        "id": "e1",
+        "source": "sample_prose.txt",
+        "text": "Deforestation driven by agriculture, logging, and mining has reduced the forest's size significantly over the past fifty years."
+      }
+    ],
+    "difficulty": "easy",
+    "tags": [
+      "direct_lexical",
+      "multi_fact"
+    ]
+  },
+  {
+    "id": "q_004",
+    "query": "How does human activity threaten the Amazon's ecological stability?",
+    "answerable": true,
+    "reference_answer": "Agriculture, logging, and mining have driven deforestation, raising concerns about long-term ecological stability and biodiversity loss.",
+    "evidence": [
+      {
+        "id": "e1",
+        "source": "sample_prose.txt",
+        "text": "Deforestation driven by agriculture, logging, and mining has reduced the forest's size significantly over the past fifty years, raising concerns among scientists about long-term ecological stability and the loss of biodiversity."
+      }
+    ],
+    "difficulty": "medium",
+    "tags": [
+      "semantic_paraphrase",
+      "causal"
+    ]
+  },
+  {
+    "id": "q_005",
+    "query": "What is the typical efficiency range of modern solar panels?",
+    "answerable": true,
+    "reference_answer": "Modern solar panels typically convert roughly twenty to twenty-two percent of incoming sunlight into usable electricity.",
+    "evidence": [
+      {
+        "id": "e1",
+        "source": "sample_markdown.md",
+        "text": "Modern solar panels convert roughly twenty to twenty-two percent of incoming sunlight into usable electricity."
+      }
+    ],
+    "difficulty": "easy",
+    "tags": [
+      "direct_lexical",
+      "numeric",
+      "factoid"
+    ]
+  },
+  {
+    "id": "q_006",
+    "query": "What factors can reduce solar panel efficiency?",
+    "answerable": true,
+    "reference_answer": "Solar panel efficiency can be affected by temperature, installation angle, dust or shading, cleanliness, and the age of the panel.",
+    "evidence": [
+      {
+        "id": "e1",
+        "source": "sample_markdown.md",
+        "text": "Panel temperature: efficiency drops as panels heat up in direct sun"
+      },
+      {
+        "id": "e2",
+        "source": "sample_markdown.md",
+        "text": "Angle of installation relative to the sun's path"
+      },
+      {
+        "id": "e3",
+        "source": "sample_markdown.md",
+        "text": "Dust, shading, and general panel cleanliness"
+      },
+      {
+        "id": "e4",
+        "source": "sample_markdown.md",
+        "text": "Age of the panel, since output degrades roughly half a percent per year"
+      }
+    ],
+    "difficulty": "medium",
+    "tags": [
+      "multi_fact",
+      "list",
+      "coverage_required"
+    ]
+  },
+  {
+    "id": "q_007",
+    "query": "How much of their original output do manufacturers typically guarantee solar panels will retain after 25 years?",
+    "answerable": true,
+    "reference_answer": "Manufacturers typically guarantee at least eighty percent of the original output after twenty-five years.",
+    "evidence": [
+      {
+        "id": "e1",
+        "source": "sample_markdown.md",
+        "text": "Manufacturers typically guarantee at least eighty percent of original output after twenty-five years of use."
+      }
+    ],
+    "difficulty": "easy",
+    "tags": [
+      "semantic_paraphrase",
+      "numeric"
+    ]
+  },
+  {
+    "id": "q_008",
+    "query": "What water temperature is generally recommended for pour-over coffee?",
+    "answerable": true,
+    "reference_answer": "Most guides recommend water heated to between 195 and 205 degrees Fahrenheit.",
+    "evidence": [
+      {
+        "id": "e1",
+        "source": "sample_page.html",
+        "text": "Most guides recommend water heated to between 195 and 205 degrees Fahrenheit"
+      }
+    ],
+    "difficulty": "easy",
+    "tags": [
+      "direct_lexical",
+      "numeric",
+      "html_source"
+    ]
+  },
+  {
+    "id": "q_009",
+    "query": "What grind consistency is recommended for a standard pour-over cone?",
+    "answerable": true,
+    "reference_answer": "A grind consistency similar to coarse sea salt is recommended.",
+    "evidence": [
+      {
+        "id": "e1",
+        "source": "sample_page.html",
+        "text": "a grind consistency similar to coarse sea salt for a standard pour-over cone."
+      }
+    ],
+    "difficulty": "easy",
+    "tags": [
+      "semantic_paraphrase",
+      "html_source"
+    ]
+  },
+  {
+    "id": "q_010",
+    "query": "Why does pour-over coffee give the brewer more control than automatic drip brewing?",
+    "answerable": true,
+    "reference_answer": "Pour-over brewing gives the brewer more control over extraction time and water temperature compared with automatic drip machines.",
+    "evidence": [
+      {
+        "id": "e1",
+        "source": "sample_page.html",
+        "text": "The technique gives the brewer more control over extraction time and water temperature compared to automatic drip machines."
+      }
+    ],
+    "difficulty": "medium",
+    "tags": [
+      "semantic_paraphrase",
+      "comparison",
+      "why_question"
+    ]
+  },
+  {
+    "id": "q_011",
+    "query": "What was the North region's revenue in Q3?",
+    "answerable": true,
+    "reference_answer": "The North region's Q3 revenue was 128000.",
+    "evidence": [
+      {
+        "id": "e1",
+        "source": "table_sample.txt",
+        "text": "North  | 120000    | 135000    | 128000    | 142000"
+      }
+    ],
+    "difficulty": "easy",
+    "tags": [
+      "table",
+      "numeric",
+      "exact_lookup"
+    ]
+  },
+  {
+    "id": "q_012",
+    "query": "Which regions had the strongest growth during the second half of the year?",
+    "answerable": true,
+    "reference_answer": "The North and West regions had the strongest growth during the second half of the year.",
+    "evidence": [
+      {
+        "id": "e1",
+        "source": "table_sample.txt",
+        "text": "Overall growth was strongest in the North and West regions during the second half of the year."
+      }
+    ],
+    "difficulty": "easy",
+    "tags": [
+      "table",
+      "direct_lexical",
+      "comparison"
+    ]
+  },
+  {
+    "id": "q_013",
+    "query": "Which region had the highest Q4 revenue, and what was the amount?",
+    "answerable": true,
+    "reference_answer": "The West region had the highest Q4 revenue, with 160000.",
+    "evidence": [
+      {
+        "id": "e1",
+        "source": "table_sample.txt",
+        "text": "West  | 143000    | 150000    | 148000    | 160000"
+      }
+    ],
+    "difficulty": "medium",
+    "tags": [
+      "table",
+      "comparison",
+      "numeric",
+      "reasoning"
+    ]
+  },
+  {
+    "id": "q_014",
+    "query": "How much higher was the West region's Q4 revenue than the East region's Q4 revenue?",
+    "answerable": true,
+    "reference_answer": "The West region's Q4 revenue was 61000 higher than the East region's Q4 revenue.",
+    "evidence": [
+      {
+        "id": "e1",
+        "source": "table_sample.txt",
+        "text": "East  | 87000     | 92000    | 95000    | 99000"
+      },
+      {
+        "id": "e2",
+        "source": "table_sample.txt",
+        "text": "West  | 143000    | 150000    | 148000    | 160000"
+      }
+    ],
+    "difficulty": "medium",
+    "tags": [
+      "table",
+      "multi_fact",
+      "numeric",
+      "reasoning",
+      "coverage_required"
+    ]
+  },
+  {
+    "id": "q_015",
+    "query": "How many days per week may employees work remotely under the 2025 remote work policy?",
+    "answerable": true,
+    "reference_answer": "Employees may work remotely up to four days per week, subject to manager approval.",
+    "evidence": [
+      {
+        "id": "e1",
+        "source": "versioning_v2.txt",
+        "text": "Employees may work remotely up to four days per week, subject to manager approval."
+      }
+    ],
+    "difficulty": "easy",
+    "tags": [
+      "exact_entity",
+      "version_specific",
+      "numeric"
+    ]
+  },
+  {
+    "id": "q_016",
+    "query": "What are the core collaboration hours under the 2025 remote work policy?",
+    "answerable": true,
+    "reference_answer": "The core collaboration hours are 11am to 2pm local time.",
+    "evidence": [
+      {
+        "id": "e1",
+        "source": "versioning_v2.txt",
+        "text": "Core collaboration hours are 11am to 2pm local time."
+      }
+    ],
+    "difficulty": "easy",
+    "tags": [
+      "exact_entity",
+      "version_specific",
+      "numeric"
+    ]
+  },
+  {
+    "id": "q_017",
+    "query": "How did the company's remote work policy change from 2024 to 2025?",
+    "answerable": true,
+    "reference_answer": "The remote-work allowance increased from up to two days per week in 2024 to up to four days per week in 2025. Core collaboration hours changed from 10am–3pm in 2024 to 11am–2pm in 2025.",
+    "evidence": [
+      {
+        "id": "e1",
+        "source": "versioning_v1.txt",
+        "text": "Employees may work remotely up to two days per week, subject to manager approval. Core collaboration hours are 10am to 3pm local time."
+      },
+      {
+        "id": "e2",
+        "source": "versioning_v2.txt",
+        "text": "Employees may work remotely up to four days per week, subject to manager approval. Core collaboration hours are 11am to 2pm local time."
+      }
+    ],
+    "difficulty": "hard",
+    "tags": [
+      "multi_fact",
+      "cross_document",
+      "version_specific",
+      "comparison",
+      "coverage_required"
+    ]
+  },
+  {
+    "id": "q_018",
+    "query": "What temperature range is recommended for brewing espresso?",
+    "answerable": false,
+    "reference_answer": null,
+    "evidence": [],
+    "difficulty": "medium",
+    "tags": [
+      "unanswerable",
+      "near_domain",
+      "negative_retrieval"
+    ]
+  },
+  {
+    "id": "q_019",
+    "query": "What percentage of the Amazon rainforest has disappeared since 2000?",
+    "answerable": false,
+    "reference_answer": null,
+    "evidence": [],
+    "difficulty": "hard",
+    "tags": [
+      "unanswerable",
+      "same_topic",
+      "numeric",
+      "negative_retrieval"
+    ]
+  },
+  {
+    "id": "q_020",
+    "query": "What is the annual degradation rate of solar panels?",
+    "answerable": true,
+    "reference_answer": "The document states that panel output degrades by roughly half a percent per year as the panel ages.",
+    "evidence": [
+      {
+        "id": "e1",
+        "source": "sample_markdown.md",
+        "text": "Age of the panel, since output degrades roughly half a percent per year"
+      }
+    ],
+    "difficulty": "medium",
+    "tags": [
+      "semantic_paraphrase",
+      "numeric",
+      "rare_phrase"
+    ]
+  }
+]
