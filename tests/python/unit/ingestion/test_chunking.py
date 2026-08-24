@@ -10,10 +10,12 @@ def test_fixed_chunking_respects_size_and_overlap(monkeypatch):
     text = " ".join(f"word{i}" for i in range(20))
     groups = chunking.chunk_document(text)
 
-    assert len(groups) == 1  # 20 words fits in one 20-word parent
+    assert len(groups) == 1
+
     small = groups[0]["small_texts"]
-    assert len(small) >= 4
-    assert small[0].split()[0] == "word0"
+    assert len(small) == 5
+    assert small[0].split() == ["word0", "word1", "word2", "word3", "word4"]
+    assert small[1].split()[0] == "word4"
 
 
 def test_empty_text_produces_no_chunks():
