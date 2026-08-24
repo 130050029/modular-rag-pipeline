@@ -35,6 +35,17 @@ import pytest
 # config.py's own comment for the full explanation.
 # import config as config  # noqa: F401  (imported for its module-level side effect)
 
+def pytest_collection_modifyitems(items):
+    for item in items:
+        path = Path(str(item.fspath))
+
+        if "unit" in path.parts:
+            item.add_marker(pytest.mark.unit)
+        elif "integration" in path.parts:
+            item.add_marker(pytest.mark.integration)
+        elif "e2e" in path.parts:
+            item.add_marker(pytest.mark.e2e)
+
 
 @pytest.fixture(autouse=True)
 def temp_db(tmp_path, monkeypatch):

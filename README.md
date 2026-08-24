@@ -357,3 +357,8 @@ export OMP_NUM_THREADS=1
 ```
 
 The more robust long-term fix is installing `faiss-cpu` from `conda-forge` rather than the PyPI wheel, since conda coordinates shared native libraries across packages instead of each bundling its own copy.
+
+
+Appendix: Production Architecture Evolution
+
+As a RAG system grows, application orchestration may be separated into services/, while implementations that interact with databases, vector stores, LLM providers, queues, and observability systems may move into infrastructure/. The current project intentionally organizes code around RAG pipeline components because the primary goal is learning and benchmarking the retrieval/generation architecture. Such restructuring can be introduced when the system grows beyond the current learning scope.
