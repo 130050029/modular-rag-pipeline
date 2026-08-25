@@ -1,7 +1,9 @@
 # Modular RAG Pipeline
 
 <!-- Replace YOUR_USERNAME below with your actual GitHub username once pushed -->
-![Tests](https://github.com/130050029/modular-rag-pipeline/actions/workflows/tests.yml/badge.svg)
+![Unit](https://github.com/130050029/modular-rag-pipeline/actions/workflows/unit.yml/badge.svg)
+![Integration](https://github.com/130050029/modular-rag-pipeline/actions/workflows/integration.yml/badge.svg)
+![E2E](https://github.com/130050029/modular-rag-pipeline/actions/workflows/e2e.yml/badge.svg)
 
 A modular, end-to-end Retrieval-Augmented Generation (RAG) pipeline built with FastAPI, FAISS, and sentence-transformers. It implements document ingestion with multi-format extraction, a three-layer deduplication strategy, document versioning with soft-delete, parent/child chunking, and table-aware embedding — each concern isolated into its own module so individual components can be understood, tested, and replaced independently.
 
