@@ -3,7 +3,6 @@ name: Integration Tests
 on:
   push:
   pull_request:
-  workflow_dispatch:
 
 jobs:
   integration:
@@ -20,9 +19,9 @@ jobs:
           - 5432:5432
         options: >-
           --health-cmd "pg_isready -U rag_dev -d rag_dev"
-          --health-interval 5s
+          --health-interval 10s
           --health-timeout 5s
-          --health-retries 10
+          --health-retries 5
 
       redis:
         image: redis:7
@@ -30,9 +29,9 @@ jobs:
           - 6379:6379
         options: >-
           --health-cmd "redis-cli ping"
-          --health-interval 5s
+          --health-interval 10s
           --health-timeout 5s
-          --health-retries 10
+          --health-retries 5
 
       qdrant:
         image: qdrant/qdrant:latest
@@ -40,11 +39,9 @@ jobs:
           - 6333:6333
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
+      - uses: actions/checkout@v7
 
-      - name: Set up Python
-        uses: actions/setup-python@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -54,57 +51,27 @@ jobs:
       - name: Wait for Qdrant
         run: |
           for i in $(seq 1 30); do
-            if curl -sf http://localhost:6333/healthz > /dev/null; then
-              echo "Qdrant is ready"
-              break
-            fi
-
-            if [ "$i" -eq 30 ]; then
-              echo "Qdrant did not become ready"
-              exit 1
-            fi
-
+            curl -sf http://localhost:6333/healthz && break
             sleep 2
           done
-
-      - name: Verify services
-        env:
-          PGPASSWORD: rag_dev_password
-        run: |
-          pg_isready \
-            -h localhost \
-            -p 5432 \
-            -U rag_dev \
-            -d rag_dev
-
-          redis-cli \
-            -h localhost \
-            -p 6379 \
-            ping
-
-          curl -sf http://localhost:6333/healthz
 
       - name: Run integration tests
         env:
           KMP_DUPLICATE_LIB_OK: "TRUE"
           OMP_NUM_THREADS: "1"
 
-          DB_BACKEND: "postgres"
+          POSTGRES_HOST: 127.0.0.1
+          POSTGRES_PORT: 5432
+          POSTGRES_DB: rag_dev
+          POSTGRES_USER: rag_dev
+          POSTGRES_PASSWORD: rag_dev_password
 
-          POSTGRES_HOST: "localhost"
-          POSTGRES_PORT: "5432"
-          POSTGRES_DB: "rag_dev"
-          POSTGRES_USER: "rag_dev"
-          POSTGRES_PASSWORD: "rag_dev_password"
+          REDIS_HOST: 127.0.0.1
+          REDIS_PORT: 6379
+          REDIS_DB: 15
 
-          NEAR_DUP_BACKEND: "redis"
-          REDIS_HOST: "localhost"
-          REDIS_PORT: "6379"
-          REDIS_DB: "15"
+          QDRANT_HOST: 127.0.0.1
+          QDRANT_PORT: 6333
+          QDRANT_COLLECTION: rag_chunks_test
 
-          VECTOR_BACKEND: "qdrant"
-          QDRANT_HOST: "localhost"
-          QDRANT_PORT: "6333"
-          QDRANT_COLLECTION: "rag_chunks_ci"
-
-        run: pytest tests/python/integration -v
+        run: pytest tests/python/integration/ -v
