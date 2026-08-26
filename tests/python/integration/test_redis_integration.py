@@ -208,7 +208,8 @@ def test_redis_multiple_documents_can_be_distinguished(
         "The regional hospital announced a new initiative today aimed at "
         "reducing emergency department congestion during peak hours. The plan "
         "includes additional clinical staff, expanded appointment capacity, "
-        "and updated scheduling procedures to improve patient flow."
+        "and updated scheduling procedures to improve patient flow across the "
+        "hospital system."
     )
 
     register_document(
@@ -223,12 +224,12 @@ def test_redis_multiple_documents_can_be_distinguished(
 
     edited_first = first.replace(
         "fifteen percent",
-        "twenty percent",
+        "sixteen percent",
     )
 
     edited_second = second.replace(
-        "emergency department",
-        "emergency care department",
+        "The regional hospital",
+        "The local hospital",
     )
 
     assert (
