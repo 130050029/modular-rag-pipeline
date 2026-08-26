@@ -71,7 +71,7 @@ jobs:
         run: |
           curl -sf http://localhost:11434/api/pull \
             -H "Content-Type: application/json" \
-            -d '{"name":"nomic-embed-text","stream":false}'
+            -d '{"name":"qwen2.5:0.5b","stream":false}'
 
       - name: Run E2E tests
         env:
@@ -92,6 +92,7 @@ jobs:
           QDRANT_PORT: 6333
           QDRANT_COLLECTION: rag_chunks_e2e
 
-          OLLAMA_HOST: 127.0.0.1:11434
+          OLLAMA_BASE_URL: 127.0.0.1:11434
+          OLLAMA_MODEL: qwen2.5:0.5b
 
         run: pytest tests/python/e2e/ -v

@@ -227,8 +227,8 @@ def test_redis_multiple_documents_can_be_distinguished(
     )
 
     edited_second = second.replace(
-        "additional clinical staff",
-        "additional medical staff",
+        "emergency department",
+        "emergency care department",
     )
 
     assert (
