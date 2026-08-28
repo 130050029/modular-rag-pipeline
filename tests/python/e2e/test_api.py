@@ -1,11 +1,3 @@
-"""
-API-level tests: use FastAPI's TestClient to hit real endpoints, including
-the lifespan startup/shutdown. `with TestClient(...) as client:` is what
-actually triggers the lifespan context manager -- a plain
-TestClient(app).get(...) without the `with` block would skip startup
-entirely and is a common mistake.
-"""
-
 import pytest
 from fastapi.testclient import TestClient
 
@@ -14,26 +6,115 @@ import server as server
 
 @pytest.fixture
 def client(temp_db, fresh_vector_index, fresh_near_dedup_index):
-    # Explicitly depends on the reset fixtures above so they run BEFORE the
-    # app's lifespan startup executes (autouse ordering isn't guaranteed
-    # relative to a fixture another fixture requests indirectly).
+    # Explicit dependencies ensure the storage/index state is isolated before
+    # the FastAPI lifespan starts.
     with TestClient(server.app) as c:
         yield c
 
 
 def test_upload_and_chat_flow(client, fake_embeddings):
     upload_response = client.post(
-        "/upload", files={"file": ("doc.txt", b"Paris is the capital of France.", "text/plain")}
+        "/upload",
+        files={
+            "file": (
+                "doc.txt",
+                b"Paris is the capital of France.",
+                "text/plain",
+            )
+        },
     )
-    assert upload_response.status_code == 200
-    assert upload_response.json()["status"] == "ingested"
 
-    chat_response = client.post("/chat", json={"query": "What is the capital of France?"})
+    assert upload_response.status_code == 200
+
+    upload_data = upload_response.json()
+
+    assert upload_data["status"] == "ingested"
+    assert upload_data["doc_id"]
+    assert upload_data["chunks"] >= 1
+
+    chat_response = client.post(
+        "/chat",
+        json={"query": "What is the capital of France?"},
+    )
+
     assert chat_response.status_code == 200
-    assert "sources" in chat_response.json()
+
+    chat_data = chat_response.json()
+
+    assert "answer" in chat_data
+    assert "sources" in chat_data
+
+    assert chat_data["sources"]
+    assert any(
+        source.get("source") == "doc.txt"
+        for source in chat_data["sources"]
+    )
+
+    assert "Paris" in chat_data["answer"]
 
 
 def test_chat_with_no_documents_returns_helpful_message(client):
-    response = client.post("/chat", json={"query": "anything"})
+    response = client.post(
+        "/chat",
+        json={"query": "What is the capital of France?"},
+    )
+
     assert response.status_code == 200
-    assert response.json()["sources"] == []
+
+    data = response.json()
+
+    assert "answer" in data
+    assert "sources" in data
+    assert data["sources"] == []
+
+
+def test_uploaded_document_can_answer_multiple_queries(
+    client,
+    fake_embeddings,
+):
+    upload_response = client.post(
+        "/upload",
+        files={
+            "file": (
+                "company.txt",
+                (
+                    b"The company was founded in 2010. "
+                    b"Its headquarters are in Berlin."
+                ),
+                "text/plain",
+            )
+        },
+    )
+
+    assert upload_response.status_code == 200
+    assert upload_response.json()["status"] == "ingested"
+
+    founded_response = client.post(
+        "/chat",
+        json={"query": "When was the company founded?"},
+    )
+
+    assert founded_response.status_code == 200
+    founded_data = founded_response.json()
+
+    assert founded_data["sources"]
+    assert any(
+        source.get("source") == "company.txt"
+        for source in founded_data["sources"]
+    )
+    assert "2010" in founded_data["answer"]
+
+    headquarters_response = client.post(
+        "/chat",
+        json={"query": "Where is the company's headquarters?"},
+    )
+
+    assert headquarters_response.status_code == 200
+    headquarters_data = headquarters_response.json()
+
+    assert headquarters_data["sources"]
+    assert any(
+        source.get("source") == "company.txt"
+        for source in headquarters_data["sources"]
+    )
+    assert "Berlin" in headquarters_data["answer"]
