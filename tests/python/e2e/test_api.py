@@ -12,7 +12,7 @@ def client(temp_db, fresh_vector_index, fresh_near_dedup_index):
         yield c
 
 
-def test_upload_and_chat_flow(client, fake_embeddings):
+def test_upload_and_chat_flow(client, fake_embeddings, ollama_available):
     upload_response = client.post(
         "/upload",
         files={
@@ -72,6 +72,7 @@ def test_chat_with_no_documents_returns_helpful_message(client):
 def test_uploaded_document_can_answer_multiple_queries(
     client,
     fake_embeddings,
+    ollama_available
 ):
     upload_response = client.post(
         "/upload",

@@ -132,3 +132,26 @@ def fake_embeddings(monkeypatch):
     monkeypatch.setattr("rag.ingestion.pipeline.embed_texts", _embed)
     monkeypatch.setattr("rag.retrieval.retrieval.embed_query", _embed_query)
     yield _embed
+
+@pytest.fixture
+def ollama_available():
+    """Skip real-LLM E2E tests when Ollama is not available locally.
+
+    CI provides Ollama explicitly in e2e.yml, so these tests remain genuine
+    end-to-end tests there. Locally, developers can run the same tests simply
+    by starting Ollama and ensuring the configured model is available.
+    """
+    import requests
+
+    url = f"{config.OLLAMA_BASE_URL}/api/tags"
+
+    try:
+        response = requests.get(url, timeout=2)
+        response.raise_for_status()
+    except requests.RequestException:
+        pytest.skip(
+            f"Ollama is not available at {url}; "
+            "start Ollama to run the real-LLM E2E tests."
+        )
+
+    return True

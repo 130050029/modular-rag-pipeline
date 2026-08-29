@@ -1,220 +1,485 @@
 """
-config.py -- single source of truth for every tunable value in this project.
+Central configuration for the modular RAG pipeline.
 
-Every other file imports from here rather than hardcoding values, so that
-when we experiment with a setting (chunk size, top_k, which index type),
-there's exactly one place to change it.
+Configuration follows this precedence:
+
+    environment variable -> sensible local-development default
+
+Paths are anchored to the repository so behavior does not depend on the
+directory from which the application is launched.
 """
 
 import os
+from pathlib import Path
 
-# MUST run before faiss or torch/sentence-transformers get imported anywhere,
-# directly or transitively -- both bundle their own OpenMP runtime, and
-# loading both in one process can otherwise segfault or abort (macOS:
-# "OMP: Error #15: Initializing libomp.dylib, but found libomp.dylib
-# already initialized"). Centralized HERE rather than repeated in every
-# entry point (server.py, tests/conftest.py, eval_retrieval.py, ...) --
-# config.py is imported first by all of them, so this is the one place
-# that reliably runs before any faiss/torch import, and a future new
-# script can't forget to add it (a mistake already made once for
-# eval_retrieval.py before this was centralized).
+
+# ---------------------------------------------------------------------------
+# Runtime safety
+# ---------------------------------------------------------------------------
+# Must happen before FAISS / torch / sentence-transformers are imported.
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 os.environ.setdefault("OMP_NUM_THREADS", "1")
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.environ.get(name)
+
+    if value is None:
+        return default
+
+    value = value.strip().lower()
+
+    if value in {"1", "true", "yes", "on"}:
+        return True
+
+    if value in {"0", "false", "no", "off"}:
+        return False
+
+    raise ValueError(
+        f"Invalid boolean value for {name}: {value!r}. "
+        "Expected true/false."
+    )
+
+
+def _env_int(name: str, default: int) -> int:
+    value = os.environ.get(name)
+
+    if value is None:
+        return default
+
+    try:
+        return int(value)
+    except ValueError as exc:
+        raise ValueError(
+            f"Invalid integer value for {name}: {value!r}"
+        ) from exc
+
+
+def _env_float(name: str, default: float) -> float:
+    value = os.environ.get(name)
+
+    if value is None:
+        return default
+
+    try:
+        return float(value)
+    except ValueError as exc:
+        raise ValueError(
+            f"Invalid float value for {name}: {value!r}"
+        ) from exc
+
+
+def _require_positive(name: str, value: int | float) -> int | float:
+    if value <= 0:
+        raise ValueError(f"{name} must be > 0, got {value}")
+    return value
+
+
+def _require_non_negative(name: str, value: int | float) -> int | float:
+    if value < 0:
+        raise ValueError(f"{name} must be >= 0, got {value}")
+    return value
+
+
+# ---------------------------------------------------------------------------
+# Paths
+# ---------------------------------------------------------------------------
+# config.py lives in:
+#
+#     <repo>/rag_python/config.py
+#
+# Therefore:
+#
+#     PROJECT_ROOT = <repo>
+#     DATA_DIR     = <repo>/data
+#
+# This avoids relying on the caller's current working directory.
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DATA_DIR = PROJECT_ROOT / "data"
+
+DB_PATH = os.environ.get(
+    "DB_PATH",
+    str(DATA_DIR / "rag.db"),
+)
+
+FAISS_INDEX_PATH = os.environ.get(
+    "FAISS_INDEX_PATH",
+    str(DATA_DIR / "faiss_index"),
+)
+
 
 # ---------------------------------------------------------------------------
 # Storage
 # ---------------------------------------------------------------------------
-# "sqlite" (default, zero-setup) or "postgres". See rag/storage/connection.py
-# for how both are supported behind one interface -- db.py's queries never
-# change regardless of which backend is active.
-DB_BACKEND = os.environ.get("DB_BACKEND", "sqlite")
+DB_BACKEND = os.environ.get("DB_BACKEND", "sqlite").strip().lower()
 
-# Used only when DB_BACKEND == "sqlite".
-DB_PATH = "../data/rag.db"
+VALID_DB_BACKENDS = {"sqlite", "postgres"}
 
-# Persisted vector index location -- produces <FAISS_INDEX_PATH>.faiss and
-# <FAISS_INDEX_PATH>.meta.json. Without this, every server restart re-runs
-# the embedding model over every indexable chunk in the corpus, which at
-# real scale (millions of chunks) turns a restart into a multi-hour
-# operation. See rag/storage/indexing.py's save()/load_from_disk() and
-# server.py's lifespan.
-FAISS_INDEX_PATH = "data/faiss_index"
+if DB_BACKEND not in VALID_DB_BACKENDS:
+    raise ValueError(
+        f"Unsupported DB_BACKEND={DB_BACKEND!r}. "
+        f"Expected one of: {sorted(VALID_DB_BACKENDS)}"
+    )
 
-# Used only when DB_BACKEND == "postgres". These defaults are placeholders
-# for local development ONLY -- never commit real credentials here. Proper
-# secret management (reading exclusively from the environment, or a secrets
-# manager, with no fallback default at all) is a planned follow-up; for now
-# this at least keeps credentials out of hardcoded Python values and lets
-# each environment override via its own env vars.
+
+# PostgreSQL settings.
+#
+# These defaults are intentionally local-development values. Real deployment
+# environments should provide them through environment variables / secret
+# management rather than relying on defaults.
 POSTGRES_HOST = os.environ.get("POSTGRES_HOST", "localhost")
-POSTGRES_PORT = int(os.environ.get("POSTGRES_PORT", "5432"))
+POSTGRES_PORT = _require_positive(
+    "POSTGRES_PORT",
+    _env_int("POSTGRES_PORT", 5432),
+)
 POSTGRES_DB = os.environ.get("POSTGRES_DB", "rag_dev")
 POSTGRES_USER = os.environ.get("POSTGRES_USER", "rag_dev")
-POSTGRES_PASSWORD = os.environ.get("POSTGRES_PASSWORD", "rag_dev_password")
+POSTGRES_PASSWORD = os.environ.get(
+    "POSTGRES_PASSWORD",
+    "rag_dev_password",
+)
+
 
 # ---------------------------------------------------------------------------
 # Embedding model
 # ---------------------------------------------------------------------------
-EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"   # small, fast, CPU-friendly
-EMBEDDING_DIM = 384
+EMBEDDING_MODEL_NAME = os.environ.get(
+    "EMBEDDING_MODEL_NAME",
+    "all-MiniLM-L6-v2",
+)
+
+EMBEDDING_DIM = _require_positive(
+    "EMBEDDING_DIM",
+    _env_int("EMBEDDING_DIM", 384),
+)
+
 
 # ---------------------------------------------------------------------------
-# Chunking -- now parent (large, shown to LLM) + small (precise, embedded)
+# Chunking
 # ---------------------------------------------------------------------------
-PARENT_CHUNK_SIZE_WORDS = 300
-SMALL_CHUNK_SIZE_WORDS = 100
-SMALL_CHUNK_OVERLAP_WORDS = 20
+PARENT_CHUNK_SIZE_WORDS = _require_positive(
+    "PARENT_CHUNK_SIZE_WORDS",
+    _env_int("PARENT_CHUNK_SIZE_WORDS", 300),
+)
 
-# "fixed" = fixed-size word windows (current default)
-# "semantic" = split where consecutive-sentence embedding similarity drops
-CHUNKING_STRATEGY = "fixed"
-SEMANTIC_CHUNK_SIMILARITY_DROP = 0.35   # similarity drop that triggers a new chunk boundary
-SEMANTIC_CHUNK_MAX_WORDS = 200          # safety cap so one chunk can't grow unbounded
+SMALL_CHUNK_SIZE_WORDS = _require_positive(
+    "SMALL_CHUNK_SIZE_WORDS",
+    _env_int("SMALL_CHUNK_SIZE_WORDS", 100),
+)
+
+SMALL_CHUNK_OVERLAP_WORDS = _require_non_negative(
+    "SMALL_CHUNK_OVERLAP_WORDS",
+    _env_int("SMALL_CHUNK_OVERLAP_WORDS", 20),
+)
+
+CHUNKING_STRATEGY = os.environ.get(
+    "CHUNKING_STRATEGY",
+    "fixed",
+).strip().lower()
+
+VALID_CHUNKING_STRATEGIES = {"fixed", "semantic"}
+
+if CHUNKING_STRATEGY not in VALID_CHUNKING_STRATEGIES:
+    raise ValueError(
+        f"Unsupported CHUNKING_STRATEGY={CHUNKING_STRATEGY!r}. "
+        f"Expected one of: {sorted(VALID_CHUNKING_STRATEGIES)}"
+    )
+
+SEMANTIC_CHUNK_SIMILARITY_DROP = _env_float(
+    "SEMANTIC_CHUNK_SIMILARITY_DROP",
+    0.35,
+)
+
+SEMANTIC_CHUNK_MAX_WORDS = _require_positive(
+    "SEMANTIC_CHUNK_MAX_WORDS",
+    _env_int("SEMANTIC_CHUNK_MAX_WORDS", 200),
+)
+
 
 # ---------------------------------------------------------------------------
-# PDF/image extraction method
+# PDF / image extraction
 # ---------------------------------------------------------------------------
-# "pymupdf" (default) -- fast, lightweight, raw text only. Does not preserve
-#   table structure, and cannot handle images at all.
-# "docling" -- IBM's open-source (MIT) document intelligence toolkit. Slower
-#   and pulls in real ML models (layout detection, table structure
-#   recognition, OCR) as dependencies, but outputs Markdown WITH tables
-#   preserved as real Markdown tables -- meaning they're automatically
-#   picked up by our existing is_table_like()/split_into_segments() logic,
-#   no extra code needed. Also the only option that supports images (via OCR).
-PDF_EXTRACTION_METHOD = os.environ.get("PDF_EXTRACTION_METHOD", "pymupdf")
+PDF_EXTRACTION_METHOD = os.environ.get(
+    "PDF_EXTRACTION_METHOD",
+    "pymupdf",
+).strip().lower()
+
+VALID_PDF_EXTRACTION_METHODS = {"pymupdf", "docling"}
+
+if PDF_EXTRACTION_METHOD not in VALID_PDF_EXTRACTION_METHODS:
+    raise ValueError(
+        f"Unsupported PDF_EXTRACTION_METHOD={PDF_EXTRACTION_METHOD!r}. "
+        f"Expected one of: {sorted(VALID_PDF_EXTRACTION_METHODS)}"
+    )
+
 
 # ---------------------------------------------------------------------------
 # Table handling
 # ---------------------------------------------------------------------------
-# "template" = cheap, deterministic description (column names + row count)
-# "llm"      = ask Claude for a one-sentence description (higher quality, costs a call per table)
-TABLE_EMBEDDING_DESCRIPTION = "template"
+TABLE_EMBEDDING_DESCRIPTION = os.environ.get(
+    "TABLE_EMBEDDING_DESCRIPTION",
+    "template",
+).strip().lower()
+
+VALID_TABLE_EMBEDDING_DESCRIPTIONS = {"template", "llm"}
+
+if TABLE_EMBEDDING_DESCRIPTION not in VALID_TABLE_EMBEDDING_DESCRIPTIONS:
+    raise ValueError(
+        f"Unsupported TABLE_EMBEDDING_DESCRIPTION="
+        f"{TABLE_EMBEDDING_DESCRIPTION!r}. "
+        f"Expected one of: {sorted(VALID_TABLE_EMBEDDING_DESCRIPTIONS)}"
+    )
 
 
 # ---------------------------------------------------------------------------
-# Deduplication thresholds
+# Deduplication
 # ---------------------------------------------------------------------------
-MINHASH_NUM_PERM = 128          # number of hash functions in each MinHash signature
-MINHASH_SHINGLE_SIZE = 9        # words per shingle (long enough to be a meaningful signal)
-NEAR_DUP_JACCARD_THRESHOLD = 0.8    # doc-level near-duplicate cutoff (MinHash/LSH; "memory" backend only)
-SEMANTIC_DUP_COSINE_THRESHOLD = 0.95  # chunk-level semantic-duplicate cutoff (embeddings)
+MINHASH_NUM_PERM = _require_positive(
+    "MINHASH_NUM_PERM",
+    _env_int("MINHASH_NUM_PERM", 128),
+)
+
+MINHASH_SHINGLE_SIZE = _require_positive(
+    "MINHASH_SHINGLE_SIZE",
+    _env_int("MINHASH_SHINGLE_SIZE", 9),
+)
+
+NEAR_DUP_JACCARD_THRESHOLD = _env_float(
+    "NEAR_DUP_JACCARD_THRESHOLD",
+    0.8,
+)
+
+SEMANTIC_DUP_COSINE_THRESHOLD = _env_float(
+    "SEMANTIC_DUP_COSINE_THRESHOLD",
+    0.95,
+)
+
 
 # ---------------------------------------------------------------------------
-# Near-duplicate detection backend
+# Near-duplicate backend
 # ---------------------------------------------------------------------------
-# "memory" (default) -- datasketch's MinHashLSH, in-process. Fast, zero
-#   setup, but lost on restart and not shared across multiple app replicas.
-# "redis" -- manual LSH banding stored in Redis sets. Persists across
-#   restarts and is shared consistently across every app replica reading
-#   the same Redis instance.
-NEAR_DUP_BACKEND = os.environ.get("NEAR_DUP_BACKEND", "memory")
+NEAR_DUP_BACKEND = os.environ.get(
+    "NEAR_DUP_BACKEND",
+    "memory",
+).strip().lower()
+
+VALID_NEAR_DUP_BACKENDS = {"memory", "redis"}
+
+if NEAR_DUP_BACKEND not in VALID_NEAR_DUP_BACKENDS:
+    raise ValueError(
+        f"Unsupported NEAR_DUP_BACKEND={NEAR_DUP_BACKEND!r}. "
+        f"Expected one of: {sorted(VALID_NEAR_DUP_BACKENDS)}"
+    )
 
 REDIS_HOST = os.environ.get("REDIS_HOST", "localhost")
-REDIS_PORT = int(os.environ.get("REDIS_PORT", "6379"))
-REDIS_DB = int(os.environ.get("REDIS_DB", "0"))
 
-# MUST be fixed and explicit -- datasketch generates a random basename if
-# none is given, which means two separate processes would each silently get
-# their own private, disconnected index, defeating the entire point of a
-# shared Redis-backed index. Verified this failure mode directly against a
-# real Redis instance before settling on this design.
-NEAR_DUP_REDIS_BASENAME = b"modular_rag_pipeline_near_dup_lsh"
+REDIS_PORT = _require_positive(
+    "REDIS_PORT",
+    _env_int("REDIS_PORT", 6379),
+)
+
+REDIS_DB = _require_non_negative(
+    "REDIS_DB",
+    _env_int("REDIS_DB", 0),
+)
+
+NEAR_DUP_REDIS_BASENAME = os.environ.get(
+    "NEAR_DUP_REDIS_BASENAME",
+    "modular_rag_pipeline_near_dup_lsh",
+).encode("utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Vector index
+# ---------------------------------------------------------------------------
+INDEX_TYPE = os.environ.get(
+    "INDEX_TYPE",
+    "hnsw",
+).strip().lower()
+
+VALID_INDEX_TYPES = {"flat", "hnsw"}
+
+if INDEX_TYPE not in VALID_INDEX_TYPES:
+    raise ValueError(
+        f"Unsupported INDEX_TYPE={INDEX_TYPE!r}. "
+        f"Expected one of: {sorted(VALID_INDEX_TYPES)}"
+    )
 
 
 # ---------------------------------------------------------------------------
-# Indexing / retrieval
+# Vector backend
 # ---------------------------------------------------------------------------
-# "flat" = exact brute-force (faiss.IndexFlatIP) -- fine at toy scale.
-# Will add "hnsw" as a second option here when we cover ANN indexing.
-# "flat" = exact brute-force (faiss.IndexFlatIP). True removal, but doesn't
-#   scale past a few thousand vectors.
-# "hnsw" = approximate graph search (faiss.IndexHNSWFlat), default. Much
-#   better query scaling; does NOT support true removal (see
-#   rag/storage/indexing.py's module docstring) -- soft-deleted vectors are
-#   tombstoned instead, permanently unreachable but still physically present
-#   until a future full rebuild.
-INDEX_TYPE = "hnsw"
+VECTOR_BACKEND = os.environ.get(
+    "VECTOR_BACKEND",
+    "faiss",
+).strip().lower()
 
-# ---------------------------------------------------------------------------
-# Vector search backend
-# ---------------------------------------------------------------------------
-# "faiss" (default) -- in-process FAISS index (HNSW or flat, per INDEX_TYPE
-#   above). The app server loads/holds the whole index in its own memory.
-# "qdrant" -- a separate Qdrant service the app talks to over the network,
-#   the same architectural pattern as Postgres/Redis. Verified directly to
-#   have two real advantages over our FAISS wrapper: no int_id<->chunk_id
-#   mapping needed (Qdrant accepts our UUID chunk_ids as point IDs
-#   natively), and TRUE deletion rather than tombstoning (Qdrant handles
-#   compaction internally, the same way it handles it for every user of
-#   the database -- not something our own code needs to reason about).
-VECTOR_BACKEND = os.environ.get("VECTOR_BACKEND", "faiss")
+VALID_VECTOR_BACKENDS = {"faiss", "qdrant"}
+
+if VECTOR_BACKEND not in VALID_VECTOR_BACKENDS:
+    raise ValueError(
+        f"Unsupported VECTOR_BACKEND={VECTOR_BACKEND!r}. "
+        f"Expected one of: {sorted(VALID_VECTOR_BACKENDS)}"
+    )
 
 QDRANT_HOST = os.environ.get("QDRANT_HOST", "localhost")
-QDRANT_PORT = int(os.environ.get("QDRANT_PORT", "6333"))
-QDRANT_COLLECTION = os.environ.get("QDRANT_COLLECTION", "rag_chunks")
 
-# HNSW tuning (only used when INDEX_TYPE == "hnsw"):
-HNSW_M = 32                 # graph connectivity -- neighbors per node (higher = better recall, more memory)
-HNSW_EF_CONSTRUCTION = 200   # search depth while BUILDING the graph (higher = better graph quality, slower build)
-HNSW_EF_SEARCH = 64          # search depth while QUERYING (higher = better recall, slower search)
+QDRANT_PORT = _require_positive(
+    "QDRANT_PORT",
+    _env_int("QDRANT_PORT", 6333),
+)
 
-TOP_K = 4
+QDRANT_COLLECTION = os.environ.get(
+    "QDRANT_COLLECTION",
+    "rag_chunks",
+)
+
 
 # ---------------------------------------------------------------------------
-# Retrieval strategy
+# HNSW tuning
 # ---------------------------------------------------------------------------
-# "dense"  = embedding/vector search only
-# "sparse" = BM25/keyword search only
-# "hybrid" = dense + sparse, fused via Reciprocal Rank Fusion
-SEARCH_MODE = os.environ.get("SEARCH_MODE", "hybrid").lower()
+HNSW_M = _require_positive(
+    "HNSW_M",
+    _env_int("HNSW_M", 32),
+)
+
+HNSW_EF_CONSTRUCTION = _require_positive(
+    "HNSW_EF_CONSTRUCTION",
+    _env_int("HNSW_EF_CONSTRUCTION", 200),
+)
+
+HNSW_EF_SEARCH = _require_positive(
+    "HNSW_EF_SEARCH",
+    _env_int("HNSW_EF_SEARCH", 64),
+)
+
+
+# ---------------------------------------------------------------------------
+# Retrieval
+# ---------------------------------------------------------------------------
+TOP_K = _require_positive(
+    "TOP_K",
+    _env_int("TOP_K", 4),
+)
+
+SEARCH_MODE = os.environ.get(
+    "SEARCH_MODE",
+    "hybrid",
+).strip().lower()
 
 VALID_SEARCH_MODES = {"dense", "sparse", "hybrid"}
+
 if SEARCH_MODE not in VALID_SEARCH_MODES:
     raise ValueError(
         f"Unsupported SEARCH_MODE={SEARCH_MODE!r}. "
         f"Expected one of: {sorted(VALID_SEARCH_MODES)}"
     )
 
-RRF_K = 60   # standard Reciprocal Rank Fusion smoothing constant
+RRF_K = _require_positive(
+    "RRF_K",
+    _env_int("RRF_K", 60),
+)
 
-# How many candidates EACH side contributes before fusion -- larger than
-# the final TOP_K, since fusion needs enough overlap between the two lists
-# to be meaningful.
-DENSE_CANDIDATE_K = 20
-SPARSE_CANDIDATE_K = 20
+DENSE_CANDIDATE_K = _require_positive(
+    "DENSE_CANDIDATE_K",
+    _env_int("DENSE_CANDIDATE_K", 20),
+)
 
-# Optional second-stage reranking.
-# The retriever first finds candidates; the cross-encoder then reranks them.
-RERANK_ENABLED = os.environ.get("RERANK_ENABLED", "false").lower() == "true"
+SPARSE_CANDIDATE_K = _require_positive(
+    "SPARSE_CANDIDATE_K",
+    _env_int("SPARSE_CANDIDATE_K", 20),
+)
+
+
+# ---------------------------------------------------------------------------
+# Reranking
+# ---------------------------------------------------------------------------
+RERANK_ENABLED = _env_bool(
+    "RERANK_ENABLED",
+    False,
+)
+
 RERANKER_MODEL = os.environ.get(
     "RERANKER_MODEL",
     "cross-encoder/ms-marco-MiniLM-L-6-v2",
 )
-RERANK_CANDIDATE_K = int(os.environ.get("RERANK_CANDIDATE_K", "20"))
+
+RERANK_CANDIDATE_K = _require_positive(
+    "RERANK_CANDIDATE_K",
+    _env_int("RERANK_CANDIDATE_K", 20),
+)
+
 
 # ---------------------------------------------------------------------------
 # Generation
 # ---------------------------------------------------------------------------
-# "ollama" = local model, no API key required
-# "anthropic" = hosted Claude API
-LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "ollama")
+LLM_PROVIDER = os.environ.get(
+    "LLM_PROVIDER",
+    "ollama",
+).strip().lower()
 
-LLM_MAX_TOKENS = int(os.environ.get("LLM_MAX_TOKENS", "500"))
-LLM_TIMEOUT = int(os.environ.get("LLM_TIMEOUT", "120"))
+VALID_LLM_PROVIDERS = {"ollama", "anthropic"}
 
-OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:0.5b")
+if LLM_PROVIDER not in VALID_LLM_PROVIDERS:
+    raise ValueError(
+        f"Unsupported LLM_PROVIDER={LLM_PROVIDER!r}. "
+        f"Expected one of: {sorted(VALID_LLM_PROVIDERS)}"
+    )
 
-ANTHROPIC_MODEL = "claude-sonnet-4-5-20250929"
+LLM_MAX_TOKENS = _require_positive(
+    "LLM_MAX_TOKENS",
+    _env_int("LLM_MAX_TOKENS", 500),
+)
+
+LLM_TIMEOUT = _require_positive(
+    "LLM_TIMEOUT",
+    _env_int("LLM_TIMEOUT", 120),
+)
+
+
+# ---------------------------------------------------------------------------
+# Ollama
+# ---------------------------------------------------------------------------
+OLLAMA_BASE_URL = os.environ.get(
+    "OLLAMA_BASE_URL",
+    "http://localhost:11434",
+).rstrip("/")
+
+OLLAMA_MODEL = os.environ.get(
+    "OLLAMA_MODEL",
+    "qwen2.5:0.5b",
+)
+
+
+# ---------------------------------------------------------------------------
+# Anthropic
+# ---------------------------------------------------------------------------
+ANTHROPIC_MODEL = os.environ.get(
+    "ANTHROPIC_MODEL",
+    "claude-sonnet-4-5-20250929",
+)
+
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 
-CONTEXT_MAX_CHARS = int(
-    os.environ.get("CONTEXT_MAX_CHARS", "12000")
+
+# ---------------------------------------------------------------------------
+# Context
+# ---------------------------------------------------------------------------
+CONTEXT_MAX_CHARS = _require_positive(
+    "CONTEXT_MAX_CHARS",
+    _env_int("CONTEXT_MAX_CHARS", 12000),
 )
+
 
 # ---------------------------------------------------------------------------
 # Server
 # ---------------------------------------------------------------------------
-HOST = "127.0.0.1"
-PORT = 8000
+HOST = os.environ.get("HOST", "127.0.0.1")
+
+PORT = _require_positive(
+    "PORT",
+    _env_int("PORT", 8000),
+)

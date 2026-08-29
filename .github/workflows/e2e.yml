@@ -44,11 +44,15 @@ jobs:
           - 11434:11434
 
     steps:
-      - uses: actions/checkout@v7
+      - name: Checkout
+        uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v7
+      - name: Set up Python
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: rag_python/requirements.txt
 
       - name: Install dependencies
         run: pip install -r rag_python/requirements.txt
@@ -56,16 +60,32 @@ jobs:
       - name: Wait for Qdrant
         run: |
           for i in $(seq 1 30); do
-            curl -sf http://localhost:6333/healthz && break
+            if curl -sf http://localhost:6333/healthz > /dev/null; then
+              echo "Qdrant is ready."
+              exit 0
+            fi
+
+            echo "Waiting for Qdrant..."
             sleep 2
           done
+
+          echo "Qdrant did not become ready."
+          exit 1
 
       - name: Wait for Ollama
         run: |
           for i in $(seq 1 30); do
-            curl -sf http://localhost:11434/api/tags && break
+            if curl -sf http://localhost:11434/api/tags > /dev/null; then
+              echo "Ollama is ready."
+              exit 0
+            fi
+
+            echo "Waiting for Ollama..."
             sleep 2
           done
+
+          echo "Ollama did not become ready."
+          exit 1
 
       - name: Pull Ollama model
         run: |
@@ -78,21 +98,26 @@ jobs:
           KMP_DUPLICATE_LIB_OK: "TRUE"
           OMP_NUM_THREADS: "1"
 
+          DB_BACKEND: postgres
+
           POSTGRES_HOST: 127.0.0.1
-          POSTGRES_PORT: 5432
+          POSTGRES_PORT: "5432"
           POSTGRES_DB: rag_dev
           POSTGRES_USER: rag_dev
           POSTGRES_PASSWORD: rag_dev_password
 
+          NEAR_DUP_BACKEND: redis
           REDIS_HOST: 127.0.0.1
-          REDIS_PORT: 6379
-          REDIS_DB: 15
+          REDIS_PORT: "6379"
+          REDIS_DB: "15"
 
+          VECTOR_BACKEND: qdrant
           QDRANT_HOST: 127.0.0.1
-          QDRANT_PORT: 6333
+          QDRANT_PORT: "6333"
           QDRANT_COLLECTION: rag_chunks_e2e
 
-          # OLLAMA_BASE_URL: 127.0.0.1:11434
-          # OLLAMA_MODEL: qwen2.5:0.5b
+          LLM_PROVIDER: ollama
+          OLLAMA_BASE_URL: http://127.0.0.1:11434
+          OLLAMA_MODEL: qwen2.5:0.5b
 
-        run: pytest tests/python/e2e/ -v
+        run: pytest tests/python/e2e -v
