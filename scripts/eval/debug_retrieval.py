@@ -9,12 +9,19 @@ Examples:
         qv2_017 qv2_018 qv2_019 qv2_024 qv2_025 qv2_026
 """
 
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+PYTHON_ROOT = ROOT / "rag_python"
+sys.path.insert(0, str(PYTHON_ROOT))
+
 import argparse
 import json
 import os
 import tempfile
 
-import rag_python.config as config
+import config as config
 
 _tmp_dir = tempfile.mkdtemp(prefix="rag_debug_")
 
@@ -24,10 +31,10 @@ config.DB_BACKEND = "sqlite"
 config.NEAR_DUP_BACKEND = "memory"
 config.VECTOR_BACKEND = "faiss"
 
-from rag_python.rag.storage.db import init_db
-from rag_python.rag.ingestion.extractors import extract_text
-from rag_python.rag.ingestion.pipeline import ingest_document
-from rag_python.rag.retrieval.retrieval import retrieve
+from rag.storage.db import init_db
+from rag.ingestion.extractors import extract_text
+from rag.ingestion.pipeline import ingest_document
+from rag.retrieval.retrieval import retrieve
 
 
 MANUAL_FILES_DIR = "data/manual_test_files"

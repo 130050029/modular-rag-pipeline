@@ -9,11 +9,19 @@ Run:
     python eval_retrieval.py
 """
 
+
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+PYTHON_ROOT = ROOT / "rag_python"
+sys.path.insert(0, str(PYTHON_ROOT))
+
 import json
 import os
 import tempfile
 
-import rag_python.config as config
+import config as config
 
 _tmp_dir = tempfile.mkdtemp(prefix="rag_eval_")
 
@@ -23,12 +31,12 @@ config.DB_BACKEND = "sqlite"
 config.NEAR_DUP_BACKEND = "memory"
 config.VECTOR_BACKEND = "faiss"
 
-from rag_python.rag.storage.db import init_db
-from rag_python.rag.ingestion.extractors import extract_text
-from rag_python.rag.ingestion.pipeline import ingest_document
-from rag_python.rag.retrieval.retrieval import retrieve
-from rag_python.rag.evaluation.evidence_matching import evidence_is_covered
-from rag_python.rag.evaluation.metrics import (
+from rag.storage.db import init_db
+from rag.ingestion.extractors import extract_text
+from rag.ingestion.pipeline import ingest_document
+from rag.retrieval.retrieval import retrieve
+from rag.evaluation.evidence_matching import evidence_is_covered
+from rag.evaluation.metrics import (
     evidence_recall_at_k,
     mean,
     precision_at_k,

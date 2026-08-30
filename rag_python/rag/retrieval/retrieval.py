@@ -7,9 +7,9 @@ from rag.retrieval.rank_fusion import reciprocal_rank_fusion
 from rag.retrieval.reranking import rerank
 from config import TOP_K
 
+from rag.query.processing import get_query_processor
 
 VALID_SEARCH_MODES = {"dense", "sparse", "hybrid"}
-
 
 def _get_search_mode() -> str:
     from config import SEARCH_MODE
@@ -36,6 +36,13 @@ def retrieve(query: str, top_k: int = TOP_K) -> list[dict]:
         DENSE_CANDIDATE_K,
         SPARSE_CANDIDATE_K,
     )
+
+    processed_queries = get_query_processor().process(query)
+    
+    if not processed_queries:
+        return []
+
+    query = processed_queries[0]
 
     mode = _get_search_mode()
     candidate_k = max(top_k, RERANK_CANDIDATE_K) if RERANK_ENABLED else top_k

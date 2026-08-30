@@ -358,6 +358,19 @@ HNSW_EF_SEARCH = _require_positive(
 
 
 # ---------------------------------------------------------------------------
+# Query intelligence
+# ---------------------------------------------------------------------------
+# When enabled, the user query is rewritten once before retrieval.
+# Disabled by default so existing retrieval behavior remains unchanged.
+QUERY_REWRITE_ENABLED = (
+    os.environ.get("QUERY_REWRITE_ENABLED", "false").lower() == "true"
+)
+QUERY_EXPANSION_ENABLED = (
+    os.environ.get("QUERY_EXPANSION_ENABLED", "false").lower() == "true"
+)
+
+
+# ---------------------------------------------------------------------------
 # Retrieval
 # ---------------------------------------------------------------------------
 TOP_K = _require_positive(

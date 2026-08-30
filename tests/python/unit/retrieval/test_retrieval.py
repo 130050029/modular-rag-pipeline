@@ -1,4 +1,5 @@
 import config
+import pytest
 
 from rag.ingestion.pipeline import ingest_document
 from rag.retrieval.retrieval import retrieve
@@ -254,3 +255,48 @@ def test_retrieve_applies_reranking_when_enabled(
     assert results[0]["source"] == "b.txt"
     assert results[0]["score_type"] == "reranker"
     assert results[0]["rank"] == 1
+
+def test_retrieval_uses_processed_query(monkeypatch):
+    monkeypatch.setattr(config, "SEARCH_MODE", "sparse")
+    monkeypatch.setattr(config, "RERANK_ENABLED", False)
+
+    captured = {}
+
+    class FakeProcessor:
+        def process(self, query):
+            captured["original"] = query
+            return ["rewritten retrieval query"]
+
+    monkeypatch.setattr(
+        "rag.retrieval.retrieval.get_query_processor",
+        lambda: FakeProcessor(),
+    )
+
+    def fake_keyword_search(query, top_k):
+        captured["retrieval_query"] = query
+        return [("chunk-1", -1.0)]
+
+    monkeypatch.setattr(
+        "rag.retrieval.retrieval.keyword_search",
+        fake_keyword_search,
+    )
+
+    monkeypatch.setattr(
+        "rag.retrieval.retrieval.get_chunks_with_parent_by_ids",
+        lambda ids: {
+            "chunk-1": {
+                "parent_chunk_id": "parent-1",
+                "content": "Relevant content",
+                "source": "doc.txt",
+            }
+        },
+    )
+
+    results = retrieve(
+        "original user question",
+        top_k=1,
+    )
+
+    assert results[0]["source"] == "doc.txt"
+    assert captured["original"] == "original user question"
+    assert captured["retrieval_query"] == "rewritten retrieval query"
