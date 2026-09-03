@@ -90,4 +90,4 @@ jobs:
           QDRANT_PORT: "6333"
           QDRANT_COLLECTION: rag_chunks_test
 
-        run: pytest tests/python/integration -v
+        run: pytest -m integration -v

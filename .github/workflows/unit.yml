@@ -26,4 +26,4 @@ jobs:
         env:
           KMP_DUPLICATE_LIB_OK: "TRUE"
           OMP_NUM_THREADS: "1"
-        run: pytest tests/python/unit -v
+        run: pytest -m unit -v

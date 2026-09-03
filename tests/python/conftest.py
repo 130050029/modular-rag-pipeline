@@ -16,12 +16,12 @@ Two important patterns worth understanding, not just copying:
    into each other.
 """
 
-import sys
+# import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-PYTHON_ROOT = ROOT / "rag_python"
-sys.path.insert(0, str(PYTHON_ROOT))
+# ROOT = Path(__file__).resolve().parents[2]
+# PYTHON_ROOT = ROOT / "rag_python"
+# sys.path.insert(0, str(PYTHON_ROOT))
 
 import config  # noqa: F401
 import numpy as np
