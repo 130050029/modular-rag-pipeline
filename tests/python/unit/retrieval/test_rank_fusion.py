@@ -1,6 +1,6 @@
 import pytest
 
-from rag.retrieval.rank_fusion import reciprocal_rank_fusion
+from rag.retrieval.rank_fusion import reciprocal_rank_fusion, multi_query_fusion
 
 
 def test_rrf_uses_rank_not_raw_scores():
@@ -126,3 +126,46 @@ def test_rrf_top_k_zero_returns_empty():
 def test_rrf_rejects_invalid_parameters(kwargs):
     with pytest.raises(ValueError):
         reciprocal_rank_fusion([], **kwargs)
+
+def test_multi_query_fusion_combines_multiple_query_results():
+    result = multi_query_fusion(
+        [
+            [("a", 1.0), ("b", 0.9)],
+            [("b", 1.0), ("c", 0.9)],
+            [("a", 1.0), ("c", 0.9)],
+        ],
+        k=60,
+        top_k=3,
+    )
+
+    ids = [chunk_id for chunk_id, _ in result]
+
+    assert ids == ["a", "b", "c"]
+
+def test_multi_query_fusion_rewards_repeated_results():
+    result = multi_query_fusion(
+        [
+            [("a", 1.0), ("b", 0.9)],
+            [("a", 1.0), ("c", 0.9)],
+            [("a", 1.0), ("d", 0.9)],
+        ],
+        k=60,
+        top_k=4,
+    )
+
+    assert result[0][0] == "a"
+
+def test_multi_query_fusion_counts_chunk_once_per_query():
+    result = multi_query_fusion(
+        [
+            [("a", 1.0), ("a", 0.9), ("b", 0.8)],
+            [("b", 1.0)],
+        ],
+        k=60,
+    )
+
+    scores = dict(result)
+
+    assert scores["a"] == 1 / 61
+    assert scores["b"] == 1 / 63 + 1 / 61
+

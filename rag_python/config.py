@@ -369,7 +369,15 @@ QUERY_EXPANSION_ENABLED = (
     os.environ.get("QUERY_EXPANSION_ENABLED", "false").lower() == "true"
 )
 
+QUERY_EXPANSION_MAX_QUERIES = int(
+    os.environ.get("QUERY_EXPANSION_MAX_QUERIES", "3")
+)
 
+QUERY_DECOMPOSITION_ENABLED = (
+    os.environ.get("QUERY_DECOMPOSITION_ENABLED", "false").lower() == "true"
+)
+
+QUERY_DECOMPOSITION_MAX_QUERIES = 4
 # ---------------------------------------------------------------------------
 # Retrieval
 # ---------------------------------------------------------------------------

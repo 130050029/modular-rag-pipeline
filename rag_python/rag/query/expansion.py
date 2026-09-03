@@ -29,11 +29,23 @@ class OllamaQueryExpander:
         if not raw:
             raise RuntimeError("Query expander returned an empty response")
 
-        queries = [
-            line.strip()
-            for line in raw.splitlines()
-            if line.strip()
-        ]
+        queries = []
+        seen = set()
+
+        for line in raw.splitlines():
+            expanded = line.strip()
+
+            if not expanded:
+                continue
+
+            if expanded in seen:
+                continue
+
+            seen.add(expanded)
+            queries.append(expanded)
+
+            if len(queries) >= config.QUERY_EXPANSION_MAX_QUERIES:
+                break
 
         if not queries:
             raise RuntimeError("Query expander returned no queries")

@@ -2,8 +2,8 @@ import config
 import pytest
 
 from rag.ingestion.pipeline import ingest_document
-from rag.retrieval.retrieval import retrieve
-
+from rag.retrieval import retrieval
+from rag.query.processing import DefaultQueryProcessor
 
 def test_retrieve_returns_parent_content(fake_embeddings):
     ingest_document(
@@ -12,7 +12,7 @@ def test_retrieve_returns_parent_content(fake_embeddings):
         "with many landmarks.",
     )
 
-    results = retrieve(
+    results =retrieval.retrieve(
         "What is the capital of France?",
         top_k=1,
     )
@@ -28,7 +28,7 @@ def test_retrieve_returns_expected_result_metadata(fake_embeddings):
         "Paris is the capital of France.",
     )
 
-    results = retrieve(
+    results =retrieval.retrieve(
         "capital of France",
         top_k=1,
     )
@@ -50,7 +50,7 @@ def test_retrieve_returns_expected_result_metadata(fake_embeddings):
 def test_retrieve_with_empty_index_returns_nothing(
     fake_embeddings,
 ):
-    assert retrieve("anything at all") == []
+    assert retrieval.retrieve("anything at all") == []
 
 
 def test_dense_retrieval_returns_top_k(
@@ -73,7 +73,7 @@ def test_dense_retrieval_returns_top_k(
         "Berlin is the capital of Germany.",
     )
 
-    results = retrieve(
+    results =retrieval.retrieve(
         "capital",
         top_k=1,
     )
@@ -101,7 +101,7 @@ def test_sparse_retrieval_finds_lexically_matching_content(
         "The company provides health insurance and retirement benefits.",
     )
 
-    results = retrieve(
+    results =retrieval.retrieve(
         "four days per week",
         top_k=1,
     )
@@ -126,7 +126,7 @@ def test_hybrid_retrieval_combines_dense_and_sparse(
         "Remote employees may work from home four days per week.",
     )
 
-    results = retrieve(
+    results =retrieval.retrieve(
         "remote work four days",
         top_k=1,
     )
@@ -169,7 +169,7 @@ def test_retrieve_ignores_missing_database_rows(
         },
     )
 
-    results = retrieve(
+    results =retrieval.retrieve(
         "test query",
         top_k=2,
     )
@@ -246,7 +246,7 @@ def test_retrieve_applies_reranking_when_enabled(
         fake_rerank,
     )
 
-    results = retrieve(
+    results =retrieval.retrieve(
         "test query",
         top_k=1,
     )
@@ -292,7 +292,7 @@ def test_retrieval_uses_processed_query(monkeypatch):
         },
     )
 
-    results = retrieve(
+    results =retrieval.retrieve(
         "original user question",
         top_k=1,
     )
@@ -300,3 +300,614 @@ def test_retrieval_uses_processed_query(monkeypatch):
     assert results[0]["source"] == "doc.txt"
     assert captured["original"] == "original user question"
     assert captured["retrieval_query"] == "rewritten retrieval query"
+
+def test_retrieve_runs_each_processed_query(monkeypatch):
+    monkeypatch.setattr(config, "SEARCH_MODE", "sparse")
+    monkeypatch.setattr(config, "RERANK_ENABLED", False)
+
+    class FakeProcessor:
+        def process(self, query):
+            return ["query one", "query two"]
+
+    monkeypatch.setattr(
+        retrieval,
+        "get_query_processor",
+        lambda: FakeProcessor(),
+    )
+
+    calls = []
+
+    def fake_keyword_search(query, top_k):
+        calls.append(query)
+
+        if query == "query one":
+            return [("chunk-1", -1.0)]
+
+        if query == "query two":
+            return [("chunk-2", -0.5)]
+
+        raise AssertionError(f"Unexpected query: {query}")
+
+    monkeypatch.setattr(
+        retrieval,
+        "keyword_search",
+        fake_keyword_search,
+    )
+
+    def fake_chunk_lookup(ids):
+        return {
+            "chunk-1": {
+                "parent_chunk_id": "parent-1",
+                "content": "Content one",
+                "source": "one.txt",
+            },
+            "chunk-2": {
+                "parent_chunk_id": "parent-2",
+                "content": "Content two",
+                "source": "two.txt",
+            },
+        }
+
+    monkeypatch.setattr(
+        retrieval,
+        "get_chunks_with_parent_by_ids",
+        fake_chunk_lookup,
+    )
+
+    monkeypatch.setattr(
+        retrieval,
+        "multi_query_fusion",
+        lambda query_results, k, top_k: [
+            ("chunk-1", 0.02),
+        ],
+    )
+
+    results = retrieval.retrieve(
+        "original question",
+        top_k=1,
+    )
+
+    assert calls == ["query one", "query two"]
+    assert len(results) == 1
+    assert results[0]["chunk_id"] == "chunk-1"
+    assert results[0]["score_type"] == "multi_query"
+
+def test_retrieve_single_processed_query_keeps_normal_score_type(
+    monkeypatch,
+):
+    monkeypatch.setattr(config, "SEARCH_MODE", "sparse")
+    monkeypatch.setattr(config, "RERANK_ENABLED", False)
+
+    class FakeProcessor:
+        def process(self, query):
+            return ["processed query"]
+
+    monkeypatch.setattr(
+        retrieval,
+        "get_query_processor",
+        lambda: FakeProcessor(),
+    )
+
+    monkeypatch.setattr(
+        retrieval,
+        "keyword_search",
+        lambda query, top_k: [
+            ("chunk-1", -1.0),
+        ],
+    )
+
+    monkeypatch.setattr(
+        retrieval,
+        "get_chunks_with_parent_by_ids",
+        lambda ids: {
+            "chunk-1": {
+                "parent_chunk_id": "parent-1",
+                "content": "Relevant content",
+                "source": "doc.txt",
+            }
+        },
+    )
+
+    results = retrieval.retrieve(
+        "original question",
+        top_k=1,
+    )
+
+    assert len(results) == 1
+    assert results[0]["source"] == "doc.txt"
+    assert results[0]["score_type"] == "sparse"
+
+def test_retrieve_fuses_multi_query_results(monkeypatch):
+    monkeypatch.setattr(config, "SEARCH_MODE", "sparse")
+    monkeypatch.setattr(config, "RERANK_ENABLED", False)
+
+    class FakeProcessor:
+        def process(self, query):
+            return ["query one", "query two", "query three"]
+
+    monkeypatch.setattr(
+        retrieval,
+        "get_query_processor",
+        lambda: FakeProcessor(),
+    )
+
+    monkeypatch.setattr(
+        retrieval,
+        "keyword_search",
+        lambda query, top_k: [
+            (f"chunk-{query[-1]}", 1.0),
+        ],
+    )
+
+    monkeypatch.setattr(
+        retrieval,
+        "get_chunks_with_parent_by_ids",
+        lambda ids: {
+            "chunk-e": {
+                "parent_chunk_id": "parent-e",
+                "content": "Content E",
+                "source": "doc-e.txt",
+            },
+            "chunk-o": {
+                "parent_chunk_id": "parent-o",
+                "content": "Content O",
+                "source": "doc-o.txt",
+            },
+        },
+    )
+
+    captured = {}
+
+    def fake_fusion(query_results, k, top_k):
+        captured["query_results"] = query_results
+        captured["k"] = k
+        captured["top_k"] = top_k
+
+        return [("chunk-e", 0.5)]
+
+    monkeypatch.setattr(
+        retrieval,
+        "multi_query_fusion",
+        fake_fusion,
+    )
+
+    results = retrieval.retrieve(
+        "original query",
+        top_k=1,
+    )
+
+    assert len(captured["query_results"]) == 3
+
+    assert captured["query_results"] == [
+        [("chunk-e", 1.0)],
+        [("chunk-o", 1.0)],
+        [("chunk-e", 1.0)],
+    ]
+
+    assert captured["k"] == config.RRF_K
+    assert captured["top_k"] == 1
+
+    assert len(results) == 1
+    assert results[0]["chunk_id"] == "chunk-e"
+    assert results[0]["source"] == "doc-e.txt"
+    assert results[0]["score_type"] == "multi_query"
+
+def test_retrieve_multi_query_marks_final_score_as_multi_query(
+    monkeypatch,
+):
+    monkeypatch.setattr(config, "SEARCH_MODE", "sparse")
+    monkeypatch.setattr(config, "RERANK_ENABLED", False)
+
+    class FakeProcessor:
+        def process(self, query):
+            return ["query one", "query two"]
+
+    monkeypatch.setattr(
+        retrieval,
+        "get_query_processor",
+        lambda: FakeProcessor(),
+    )
+
+    monkeypatch.setattr(
+        retrieval,
+        "keyword_search",
+        lambda query, top_k: [
+            ("chunk-1", -1.0),
+        ],
+    )
+
+    monkeypatch.setattr(
+        retrieval,
+        "get_chunks_with_parent_by_ids",
+        lambda ids: {
+            "chunk-1": {
+                "parent_chunk_id": "parent-1",
+                "content": "Relevant content",
+                "source": "doc.txt",
+            }
+        },
+    )
+
+    monkeypatch.setattr(
+        retrieval,
+        "multi_query_fusion",
+        lambda query_results, k, top_k: [
+            ("chunk-1", 0.5),
+        ],
+    )
+
+    results = retrieval.retrieve(
+        "original question",
+        top_k=1,
+    )
+
+    assert len(results) == 1
+    assert results[0]["source"] == "doc.txt"
+    assert results[0]["score_type"] == "multi_query"
+
+# ---------------------------------------------------------------------------
+# Query routing -> processing -> retrieval
+# ---------------------------------------------------------------------------
+
+
+def test_retrieve_uses_real_processor_routing_for_simple_query(
+    monkeypatch,
+):
+    monkeypatch.setattr(config, "SEARCH_MODE", "sparse")
+    monkeypatch.setattr(config, "RERANK_ENABLED", False)
+
+    calls = []
+
+    class FakeRouter:
+        def is_complex(self, query):
+            calls.append(("route", query))
+            return False
+
+    class FakeRewriter:
+        def rewrite(self, query):
+            calls.append(("rewrite", query))
+            return "rewritten retrieval query"
+
+    class FakeDecomposer:
+        def decompose(self, query):
+            calls.append(("decompose", query))
+            raise AssertionError(
+                "Decomposer must not run for a simple query"
+            )
+
+    processor = DefaultQueryProcessor(
+        complexity_router=FakeRouter(),
+        rewriter=FakeRewriter(),
+        decomposer=FakeDecomposer(),
+    )
+
+    monkeypatch.setattr(
+        retrieval,
+        "get_query_processor",
+        lambda: processor,
+    )
+
+    monkeypatch.setattr(
+        retrieval,
+        "keyword_search",
+        lambda query, top_k: [
+            ("chunk-1", -1.0),
+        ],
+    )
+
+    monkeypatch.setattr(
+        retrieval,
+        "get_chunks_with_parent_by_ids",
+        lambda ids: {
+            "chunk-1": {
+                "parent_chunk_id": "parent-1",
+                "content": "Relevant content",
+                "source": "doc.txt",
+            }
+        },
+    )
+
+    results = retrieval.retrieve(
+        "original user question",
+        top_k=1,
+    )
+
+    assert calls == [
+        ("route", "original user question"),
+        ("rewrite", "original user question"),
+    ]
+
+    assert len(results) == 1
+    assert results[0]["source"] == "doc.txt"
+
+
+def test_retrieve_uses_real_processor_routing_for_complex_query(
+    monkeypatch,
+):
+    monkeypatch.setattr(config, "SEARCH_MODE", "sparse")
+    monkeypatch.setattr(config, "RERANK_ENABLED", False)
+
+    calls = []
+
+    class FakeRouter:
+        def is_complex(self, query):
+            calls.append(("route", query))
+            return True
+
+    class FakeRewriter:
+        def rewrite(self, query):
+            calls.append(("rewrite", query))
+            raise AssertionError(
+                "Rewriter must not run for a complex query"
+            )
+
+    class FakeDecomposer:
+        def decompose(self, query):
+            calls.append(("decompose", query))
+            return [
+                "sub-question one",
+                "sub-question two",
+            ]
+
+    processor = DefaultQueryProcessor(
+        complexity_router=FakeRouter(),
+        rewriter=FakeRewriter(),
+        decomposer=FakeDecomposer(),
+    )
+
+    monkeypatch.setattr(
+        retrieval,
+        "get_query_processor",
+        lambda: processor,
+    )
+
+    retrieval_queries = []
+
+    def fake_keyword_search(query, top_k):
+        retrieval_queries.append(query)
+
+        return [
+            ("chunk-1", -1.0),
+        ]
+
+    monkeypatch.setattr(
+        retrieval,
+        "keyword_search",
+        fake_keyword_search,
+    )
+
+    monkeypatch.setattr(
+        retrieval,
+        "get_chunks_with_parent_by_ids",
+        lambda ids: {
+            "chunk-1": {
+                "parent_chunk_id": "parent-1",
+                "content": "Relevant content",
+                "source": "doc.txt",
+            }
+        },
+    )
+
+    monkeypatch.setattr(
+        retrieval,
+        "multi_query_fusion",
+        lambda query_results, k, top_k: [
+            ("chunk-1", 0.5),
+        ],
+    )
+
+    results = retrieval.retrieve(
+        "complex user question",
+        top_k=1,
+    )
+
+    assert calls == [
+        ("route", "complex user question"),
+        ("decompose", "complex user question"),
+    ]
+
+    assert retrieval_queries == [
+        "sub-question one",
+        "sub-question two",
+    ]
+
+    assert len(results) == 1
+    assert results[0]["source"] == "doc.txt"
+    assert results[0]["score_type"] == "multi_query"
+
+
+def test_retrieve_preserves_expansion_after_simple_query_routing(
+    monkeypatch,
+):
+    monkeypatch.setattr(config, "SEARCH_MODE", "sparse")
+    monkeypatch.setattr(config, "RERANK_ENABLED", False)
+
+    calls = []
+
+    class FakeRouter:
+        def is_complex(self, query):
+            calls.append(("route", query))
+            return False
+
+    class FakeRewriter:
+        def rewrite(self, query):
+            calls.append(("rewrite", query))
+            return "rewritten query"
+
+    class FakeExpander:
+        def expand(self, query):
+            calls.append(("expand", query))
+            return [
+                "expanded query one",
+                "expanded query two",
+            ]
+
+    processor = DefaultQueryProcessor(
+        complexity_router=FakeRouter(),
+        rewriter=FakeRewriter(),
+        expander=FakeExpander(),
+    )
+
+    monkeypatch.setattr(
+        retrieval,
+        "get_query_processor",
+        lambda: processor,
+    )
+
+    retrieval_queries = []
+
+    def fake_keyword_search(query, top_k):
+        retrieval_queries.append(query)
+
+        return [
+            ("chunk-1", -1.0),
+        ]
+
+    monkeypatch.setattr(
+        retrieval,
+        "keyword_search",
+        fake_keyword_search,
+    )
+
+    monkeypatch.setattr(
+        retrieval,
+        "get_chunks_with_parent_by_ids",
+        lambda ids: {
+            "chunk-1": {
+                "parent_chunk_id": "parent-1",
+                "content": "Relevant content",
+                "source": "doc.txt",
+            }
+        },
+    )
+
+    monkeypatch.setattr(
+        retrieval,
+        "multi_query_fusion",
+        lambda query_results, k, top_k: [
+            ("chunk-1", 0.5),
+        ],
+    )
+
+    results = retrieval.retrieve(
+        "original question",
+        top_k=1,
+    )
+
+    assert calls == [
+        ("route", "original question"),
+        ("rewrite", "original question"),
+        ("expand", "rewritten query"),
+    ]
+
+    assert retrieval_queries == [
+        "expanded query one",
+        "expanded query two",
+    ]
+
+    assert len(results) == 1
+    assert results[0]["score_type"] == "multi_query"
+
+
+def test_retrieve_preserves_expansion_after_complex_query_routing(
+    monkeypatch,
+):
+    monkeypatch.setattr(config, "SEARCH_MODE", "sparse")
+    monkeypatch.setattr(config, "RERANK_ENABLED", False)
+
+    calls = []
+
+    class FakeRouter:
+        def is_complex(self, query):
+            calls.append(("route", query))
+            return True
+
+    class FakeRewriter:
+        def rewrite(self, query):
+            calls.append(("rewrite", query))
+            raise AssertionError(
+                "Rewriter must not run for a complex query"
+            )
+
+    class FakeDecomposer:
+        def decompose(self, query):
+            calls.append(("decompose", query))
+            return [
+                "sub-question one",
+                "sub-question two",
+            ]
+
+    class FakeExpander:
+        def expand(self, query):
+            calls.append(("expand", query))
+            return [
+                f"{query} variant",
+            ]
+
+    processor = DefaultQueryProcessor(
+        complexity_router=FakeRouter(),
+        rewriter=FakeRewriter(),
+        decomposer=FakeDecomposer(),
+        expander=FakeExpander(),
+    )
+
+    monkeypatch.setattr(
+        retrieval,
+        "get_query_processor",
+        lambda: processor,
+    )
+
+    retrieval_queries = []
+
+    def fake_keyword_search(query, top_k):
+        retrieval_queries.append(query)
+
+        return [
+            ("chunk-1", -1.0),
+        ]
+
+    monkeypatch.setattr(
+        retrieval,
+        "keyword_search",
+        fake_keyword_search,
+    )
+
+    monkeypatch.setattr(
+        retrieval,
+        "get_chunks_with_parent_by_ids",
+        lambda ids: {
+            "chunk-1": {
+                "parent_chunk_id": "parent-1",
+                "content": "Relevant content",
+                "source": "doc.txt",
+            }
+        },
+    )
+
+    monkeypatch.setattr(
+        retrieval,
+        "multi_query_fusion",
+        lambda query_results, k, top_k: [
+            ("chunk-1", 0.5),
+        ],
+    )
+
+    results = retrieval.retrieve(
+        "complex original question",
+        top_k=1,
+    )
+
+    assert calls == [
+        ("route", "complex original question"),
+        ("decompose", "complex original question"),
+        ("expand", "sub-question one"),
+        ("expand", "sub-question two"),
+    ]
+
+    assert retrieval_queries == [
+        "sub-question one variant",
+        "sub-question two variant",
+    ]
+
+    assert len(results) == 1
+    assert results[0]["score_type"] == "multi_query"

@@ -86,3 +86,46 @@ def reciprocal_rank_fusion(
 
     fused = sorted(scores.items(), key=lambda item: (-item[1], item[0]))
     return fused[:top_k] if top_k is not None else fused
+
+
+
+def multi_query_fusion(
+    query_results: list[list[tuple[str, float]]],
+    k: int = 60,
+    top_k: int | None = None,
+) -> list[tuple[str, float]]:
+    """Fuse ranked results produced by multiple retrieval queries.
+
+    Each inner list represents one independently executed query.
+    Chunks appearing in multiple query result lists accumulate score,
+    rewarding results that are consistently retrieved across queries.
+
+    This is intentionally separate from reciprocal_rank_fusion(),
+    which represents dense+sparse fusion within a single query.
+    """
+
+    scores: dict[str, float] = {}
+
+    for results in query_results:
+        seen_in_query: set[str] = set()
+
+        for rank, (chunk_id, _) in enumerate(results, start=1):
+            # A chunk should receive at most one contribution from
+            # each processed query.
+            if chunk_id in seen_in_query:
+                continue
+
+            seen_in_query.add(chunk_id)
+            scores[chunk_id] = scores.get(chunk_id, 0.0) + (
+                1.0 / (k + rank)
+            )
+
+    ranked = sorted(
+        scores.items(),
+        key=lambda item: (-item[1], item[0]),
+    )
+
+    if top_k is not None:
+        ranked = ranked[:top_k]
+
+    return ranked

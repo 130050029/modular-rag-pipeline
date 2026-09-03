@@ -1,11 +1,6 @@
 import config
 import pytest
 
-from rag.query.processing import (
-    DefaultQueryProcessor,
-    get_query_processor
-)
-
 from rag.query.rewriting import build_rewrite_prompt, OllamaQueryRewriter
 
 def test_build_rewrite_prompt_contains_query():
@@ -34,7 +29,7 @@ def test_ollama_query_rewriter(monkeypatch):
         return FakeResponse()
 
     monkeypatch.setattr(
-        "rag.query.processing.requests.post",
+        "rag.query.rewriting.requests.post",
         fake_post,
     )
     monkeypatch.setattr(
@@ -69,7 +64,7 @@ def test_ollama_query_rewriter_rejects_empty_response(monkeypatch):
             return {"response": "   "}
 
     monkeypatch.setattr(
-        "rag.query.processing.requests.post",
+        "rag.query.rewriting.requests.post",
         lambda *args, **kwargs: FakeResponse(),
     )
 
