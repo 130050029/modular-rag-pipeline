@@ -95,7 +95,7 @@ jobs:
 
       - name: Run E2E tests
         env:
-          KMP_DUPLICATE_LIB_OK: "TRUE"
+          # KMP_DUPLICATE_LIB_OK: "TRUE"
           OMP_NUM_THREADS: "1"
 
           DB_BACKEND: postgres
@@ -120,4 +120,4 @@ jobs:
           OLLAMA_BASE_URL: http://127.0.0.1:11434
           OLLAMA_MODEL: qwen2.5:0.5b
 
-        run: pytest -m e2e -v
+        run: pytest -m e2e -n auto -v

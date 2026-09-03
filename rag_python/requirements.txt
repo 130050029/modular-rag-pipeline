@@ -10,6 +10,7 @@ datasketch
 beautifulsoup4
 pymupdf
 pytest
+pytest-xdist
 httpx2
 
 # Only needed if config.DB_BACKEND is set to "postgres" -- not required for

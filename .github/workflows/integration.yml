@@ -69,7 +69,7 @@ jobs:
 
       - name: Run integration tests
         env:
-          KMP_DUPLICATE_LIB_OK: "TRUE"
+          # KMP_DUPLICATE_LIB_OK: "TRUE"
           OMP_NUM_THREADS: "1"
 
           DB_BACKEND: postgres
@@ -90,4 +90,4 @@ jobs:
           QDRANT_PORT: "6333"
           QDRANT_COLLECTION: rag_chunks_test
 
-        run: pytest -m integration -v
+        run: pytest -m integration -n auto -v
