@@ -38,6 +38,11 @@ jobs:
         ports:
           - 6333:6333
 
+      ollama:
+        image: ollama/ollama:latest
+        ports:
+          - 11434:11434
+
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -67,6 +72,27 @@ jobs:
           echo "Qdrant did not become ready."
           exit 1
 
+      - name: Wait for Ollama
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:11434/api/tags > /dev/null; then
+              echo "Ollama is ready."
+              exit 0
+            fi
+
+            echo "Waiting for Ollama..."
+            sleep 2
+          done
+
+          echo "Ollama did not become ready."
+          exit 1
+
+      - name: Pull Ollama model
+        run: |
+          curl -sf http://localhost:11434/api/pull \
+            -H "Content-Type: application/json" \
+            -d '{"name":"qwen2.5:0.5b","stream":false}'
+
       - name: Run integration tests
         env:
           # KMP_DUPLICATE_LIB_OK: "TRUE"
@@ -90,4 +116,8 @@ jobs:
           QDRANT_PORT: "6333"
           QDRANT_COLLECTION: rag_chunks_test
 
-        run: pytest -m integration -n auto -v
+          LLM_PROVIDER: ollama
+          OLLAMA_BASE_URL: http://127.0.0.1:11434
+          OLLAMA_MODEL: qwen2.5:0.5b
+
+        run: pytest -m integration -v
