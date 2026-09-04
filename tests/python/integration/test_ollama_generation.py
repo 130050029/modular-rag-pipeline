@@ -16,7 +16,7 @@ CHUNKS = [
 
 
 @pytest.mark.integration
-def test_ollama_generates_grounded_answer():
+def test_ollama_generates_grounded_answer(ollama_available):
     generator = OllamaGenerator()
 
     answer = generator.generate(

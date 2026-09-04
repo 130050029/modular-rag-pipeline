@@ -1,15 +1,4 @@
-import pytest
-from fastapi.testclient import TestClient
 
-import server as server
-
-
-@pytest.fixture
-def client(temp_db, fresh_vector_index, fresh_near_dedup_index):
-    # Explicit dependencies ensure the storage/index state is isolated before
-    # the FastAPI lifespan starts.
-    with TestClient(server.app) as c:
-        yield c
 
 
 def test_upload_and_chat_flow(client, fake_embeddings, ollama_available):

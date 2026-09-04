@@ -26,6 +26,7 @@ from pathlib import Path
 import config  # noqa: F401
 import numpy as np
 import pytest
+from fastapi.testclient import TestClient
 
 # Importing config here (before anything that might pull in faiss/torch)
 # is what applies its centralized KMP_DUPLICATE_LIB_OK/OMP_NUM_THREADS fix --
@@ -155,3 +156,11 @@ def ollama_available():
         )
 
     return True
+
+@pytest.fixture
+def client(temp_db, fresh_vector_index, fresh_near_dedup_index):
+    # Explicit dependencies ensure the storage/index state is isolated before
+    # the FastAPI lifespan starts.
+    import server as server
+    with TestClient(server.app) as c:
+        yield c
