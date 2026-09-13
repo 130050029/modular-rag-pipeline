@@ -35,7 +35,8 @@ def test_rag_generates_grounded_answer_from_uploaded_document(
     assert isinstance(data["answer"], str)
     assert data["answer"].strip()
 
-    assert "128000" in data["answer"]
+    normalized_answer = data["answer"].replace(",", "")
+    assert "128000" in normalized_answer
 
     assert data["sources"]
     assert any(
