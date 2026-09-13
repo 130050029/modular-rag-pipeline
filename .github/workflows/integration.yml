@@ -2,7 +2,17 @@ name: Integration Tests
 
 on:
   push:
+    paths:
+      - rag_python/**
+      - tests/python/integration/**
+      - tests/python/conftest.py
+      - pytest.ini
   pull_request:
+    paths:
+      - rag_python/**
+      - tests/python/integration/**
+      - tests/python/conftest.py
+      - pytest.ini
 
 jobs:
   integration:
