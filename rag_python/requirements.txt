@@ -12,7 +12,7 @@ pymupdf
 pytest
 pytest-xdist
 httpx2
-
+outlines[transformers]
 # Only needed if config.DB_BACKEND is set to "postgres" -- not required for
 # the default SQLite backend. Uses psycopg3 (package name "psycopg"), not
 # the older psycopg2.

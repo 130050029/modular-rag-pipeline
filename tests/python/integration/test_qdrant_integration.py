@@ -38,6 +38,7 @@ def _qdrant_reachable() -> bool:
             host=QDRANT_HOST,
             port=QDRANT_PORT,
             timeout=2,
+            check_compatibility=False
         )
 
         client.get_collections()

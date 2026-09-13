@@ -20,7 +20,8 @@ pytestmark = pytest.mark.skipif(
     reason="Docling is not installed.",
 )
 
-
+@pytest.mark.filterwarnings("ignore:`force_full_page_ocr` is deprecated:DeprecationWarning")
+@pytest.mark.filterwarnings("ignore:Using padding='same' with even kernel lengths:UserWarning")
 def test_docling_extracts_pdf(monkeypatch):
     monkeypatch.setattr("config.PDF_EXTRACTION_METHOD", "docling")
 
@@ -32,7 +33,8 @@ def test_docling_extracts_pdf(monkeypatch):
     assert text.strip()
     assert "Renewable Energy Report" in text or "wind" in text.lower()
 
-
+@pytest.mark.filterwarnings("ignore:`force_full_page_ocr` is deprecated:DeprecationWarning")
+@pytest.mark.filterwarnings("ignore:Using padding='same' with even kernel lengths:UserWarning")
 def test_docling_extracts_table_from_image(monkeypatch):
     path = DATA_DIR / "sample_table.png"
 

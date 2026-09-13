@@ -54,9 +54,11 @@ def _extract_with_docling(raw: bytes, filename: str) -> str:
     """Shared by PDF and image extraction when PDF_EXTRACTION_METHOD ==
     "docling" -- Docling's DocumentConverter handles both, dispatching
     internally based on the file's content/extension."""
+
     try:
-        from docling.document_converter import DocumentConverter
-        from docling.datamodel.base_models import DocumentStream
+        from docling.document_converter import DocumentConverter, PdfFormatOption
+        from docling.datamodel.base_models import DocumentStream, InputFormat
+        from docling.datamodel.pipeline_options import PdfPipelineOptions, OcrMode
         from io import BytesIO
     except ImportError:
         raise RuntimeError(
@@ -64,8 +66,33 @@ def _extract_with_docling(raw: bytes, filename: str) -> str:
             "(this is a heavy dependency -- pulls in torch and several ML models)"
         )
 
-    converter = DocumentConverter()
+    # 1. Natively define the pipeline options using the modern OcrMode enum
+    pipeline_options = PdfPipelineOptions()
+    pipeline_options.ocr_options.mode = OcrMode.FULL_PAGE  # or OcrMode.FULL_PAGE depending on your needs
+
+    # 2. Construct the converter overriding the default PDF formatting configuration
+    converter = DocumentConverter(
+        format_options={
+            InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)
+        }
+    )
+
     source = DocumentStream(name=filename, stream=BytesIO(raw))
+
+    ## Following section was using some deprectaed options internally.
+
+    # try:
+    #     from docling.document_converter import DocumentConverter
+    #     from docling.datamodel.base_models import DocumentStream
+    #     from io import BytesIO
+    # except ImportError:
+    #     raise RuntimeError(
+    #         "Install docling to use PDF_EXTRACTION_METHOD='docling': pip install docling "
+    #         "(this is a heavy dependency -- pulls in torch and several ML models)"
+    #     )
+
+    # converter = DocumentConverter()
+    # source = DocumentStream(name=filename, stream=BytesIO(raw))
     result = converter.convert(source)
     return result.document.export_to_markdown()
 

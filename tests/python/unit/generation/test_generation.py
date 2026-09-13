@@ -392,9 +392,9 @@ def test_build_prompt_requires_context_grounding():
         CHUNKS,
     )
 
-    assert "using only the information in the provided context" in prompt
+    assert "using only information directly supported by the provided context" in prompt
     assert "Do not use outside knowledge" in prompt
-    assert "make up facts" in prompt
+    assert "Related information is not sufficient evidence for an answer" in prompt
 
 
 def test_build_prompt_requires_abstention_when_context_is_insufficient():
@@ -404,10 +404,12 @@ def test_build_prompt_requires_abstention_when_context_is_insufficient():
     )
 
     assert (
-        "does not contain enough information to answer the question"
+        "does not directly contain enough information to answer the question"
         in prompt
     )
     assert "don't have enough information" in prompt
+
+    assert "Do not invent or estimate missing numbers, dates, percentages" in prompt
 
 
 def test_build_prompt_treats_context_as_reference_material():
@@ -426,7 +428,10 @@ def test_build_prompt_mentions_multi_part_questions():
     )
 
     assert "multiple parts" in prompt
-    assert "only when supported by the context" in prompt
+    assert (
+        "answer each part only when that part is directly supported by the context"
+        in prompt
+    )
 
 def test_build_context_respects_character_budget():
     chunks = [
@@ -492,7 +497,7 @@ def test_build_prompt_requires_source_citations():
     )
 
     assert "cite the supporting source" in prompt
-    assert "exact source name provided in the context" in prompt
+    assert "using exactly this format: [Source: filename]" in prompt
 
 
 def test_build_prompt_prevents_invented_sources():
@@ -501,7 +506,11 @@ def test_build_prompt_prevents_invented_sources():
         CHUNKS,
     )
 
-    assert "Do not invent or rename sources." in prompt
+    assert (
+        "Do not invent, rename, or cite sources that are not present "
+        "in the context."
+        in prompt
+    )
 
 
 def test_build_prompt_requires_source_to_support_claim():
@@ -511,8 +520,8 @@ def test_build_prompt_requires_source_to_support_claim():
     )
 
     assert (
-        "Do not use a source citation to support information "
-        "that is not present in that source."
+        "For an answer that does not use information from the context, "
+        "do not add a source citation."
         in prompt
     )
 

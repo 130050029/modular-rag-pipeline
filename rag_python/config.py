@@ -442,7 +442,7 @@ LLM_PROVIDER = os.environ.get(
     "ollama",
 ).strip().lower()
 
-VALID_LLM_PROVIDERS = {"ollama", "anthropic"}
+VALID_LLM_PROVIDERS = {"ollama", "anthropic", "nvidia"}
 
 if LLM_PROVIDER not in VALID_LLM_PROVIDERS:
     raise ValueError(
@@ -474,7 +474,24 @@ OLLAMA_MODEL = os.environ.get(
     "qwen2.5:0.5b",
 )
 
+NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "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")
 
+NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "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")
+NVIDIA_BASE_URL = os.getenv(
+    "NVIDIA_BASE_URL",
+    "https://integrate.api.nvidia.com",
+)
+NVIDIA_MODEL = os.getenv(
+    "NVIDIA_MODEL",
+    "deepseek-ai/deepseek-v4-flash-0731",
+)
+
+# NVIDIA_JUDGE_MODEL = "meta/llama-3.2-1b-instruct"
+
+NVIDIA_JUDGE_MODEL = "mistralai/mistral-nemotron"
+NVIDIA_JUDGE_MODEL = "google/diffusiongemma-26b-a4b-it"
+
+OUTLINES_JUDGE_MODEL = "HuggingFaceTB/SmolLM2-135M-Instruct"
 # ---------------------------------------------------------------------------
 # Anthropic
 # ---------------------------------------------------------------------------
